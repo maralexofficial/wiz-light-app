@@ -58,6 +58,13 @@ jobs:
       - name: Make Gradle Wrapper Executable
         run: chmod +x gradlew
 
+      - name: Prepare Debug Keystore
+        run: |
+          if [ -f "debug.keystore.base64" ] && [ ! -f "debug.keystore" ]; then
+            echo "Stelle debug.keystore aus debug.keystore.base64 wieder her..."
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+
       - name: Build Android Debug APK
         run: |
           echo "=== Starte Gradle APK-Build ==="
