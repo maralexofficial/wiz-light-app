@@ -1,0 +1,96 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    name: Build & Publish Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Diagnose Android Project Structure
+        run: |
+          echo "=== Diagnose Android-Projektstruktur ==="
+          ls -la
+          
+          MISSING=0
+          for file in "settings.gradle.kts" "build.gradle.kts" "app/build.gradle.kts"; do
+            if [ -f "$file" ]; then
+              echo "✓ Gefunden: $file"
+            else
+              echo "✗ FEHLT: $file"
+              MISSING=1
+            fi
+          done
+
+          if [ -f "gradlew" ]; then
+            echo "✓ Gefunden: gradlew"
+          else
+            echo "✗ FEHLT: gradlew (Gradle Wrapper)"
+            MISSING=1
+          fi
+
+          if [ $MISSING -ne 0 ]; then
+            echo "::error::Kritische Android-Build-Dateien fehlen im Repository!"
+            exit 1
+          fi
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle Wrapper Executable
+        run: chmod +x gradlew
+
+      - name: Build Android Debug APK
+        run: |
+          echo "=== Starte Gradle APK-Build ==="
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Verify Generated APK
+        id: verify-apk
+        run: |
+          echo "=== Verifiziere APK-Ausgabe ==="
+          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -f "$APK_PATH" ]; then
+            echo "Suche nach erzeugten APK-Dateien..."
+            FOUND_APK=$(find app/build/outputs/apk -name "*.apk" | head -n 1)
+            if [ -n "$FOUND_APK" ]; then
+              APK_PATH="$FOUND_APK"
+            fi
+          fi
+
+          if [ ! -f "$APK_PATH" ] || [ ! -s "$APK_PATH" ]; then
+            echo "::error::Build fehlgeschlagen: Keine gültige APK-Datei gefunden unter '$APK_PATH'!"
+            find . -name "*.apk" || true
+            exit 1
+          fi
+
+          echo "Gültige Debug-APK erfolgreich erstellt:"
+          ls -lh "$APK_PATH"
+          echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wiz-light-app-debug-apk
+          path: ${{ steps.verify-apk.outputs.apk_path }}
+          if-no-files-found: error
+          retention-days: 14

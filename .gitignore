@@ -17,8 +17,4 @@ local.properties
 .env
 debug.keystore
 
-# Node & Web artifacts
-node_modules/
-dist/
-.vite/
 
