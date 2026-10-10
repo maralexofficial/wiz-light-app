@@ -1,0 +1,6 @@
+{
+  "name": "WiZ Home",
+  "description": "Moderne WiZ Smart Home Steuerung mit nativer REST-API Anbindung, Raumverwaltung und Gerätesteuerung",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
