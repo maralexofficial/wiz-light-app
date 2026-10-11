@@ -73,6 +73,7 @@ fun SettingsScreen(
     onTestConnection: () -> Unit,
     onSaveConfig: (ApiConfig) -> Unit,
     onRefreshDiscovery: () -> Unit,
+    onSyncData: () -> Unit = {},
     onResetConfig: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -403,6 +404,67 @@ fun SettingsScreen(
                                 modifier = Modifier.testTag("theme_chip_$mode")
                             )
                         }
+                    }
+                }
+            }
+        }
+
+        // Synchronization Card
+        item {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 1.dp
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Synchronisation & Gruppen (/api/sync)",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Text(
+                        text = "Gleichzeitiger Abgleich von Räumen, Gruppen und Revisionsdaten",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (apiConfig.lastRevision != null) {
+                        Text(
+                            text = "Aktuelle Revision: ${apiConfig.lastRevision}",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                    }
+
+                    if (!apiConfig.serverUpdatedAt.isNullOrBlank()) {
+                        Text(
+                            text = "Server-Stand: ${apiConfig.serverUpdatedAt}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    if (!apiConfig.lastSyncError.isNullOrBlank()) {
+                        Text(
+                            text = "Letzter Sync-Hinweis: ${apiConfig.lastSyncError}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ErrorRed
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = onSyncData,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("settings_sync_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Jetzt synchronisieren")
                     }
                 }
             }

@@ -11,12 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -24,6 +24,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -36,12 +37,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.WizDevice
+import com.example.data.model.WizGroup
 import com.example.data.model.WizRoom
 import com.example.ui.theme.AmberWarm
 
 @Composable
 fun RoomDetailView(
     room: WizRoom,
+    groups: List<WizGroup>,
     slidingBrightness: Map<String, Int>,
     onBack: () -> Unit,
     onToggleDevice: (WizDevice) -> Unit,
@@ -49,9 +52,15 @@ fun RoomDetailView(
     onDeviceClick: (WizDevice) -> Unit,
     onToggleRoom: (Boolean) -> Unit,
     onRoomBrightnessChange: (Int) -> Unit,
+    onToggleGroup: (WizGroup) -> Unit,
+    onGroupBrightnessChange: (WizGroup, Int) -> Unit,
+    onEditGroup: (WizGroup) -> Unit,
+    onCreateGroupClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     BackHandler { onBack() }
+
+    val roomGroups = groups.filter { it.roomId == room.id }
 
     Column(
         modifier = modifier
@@ -92,99 +101,135 @@ fun RoomDetailView(
             }
         }
 
-        // Room Master Control Bar
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "Raumsteuerung",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
+            // Room Master Control Bar
+            item {
+                Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 ) {
-                    Button(
-                        onClick = { onToggleRoom(true) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("room_turn_all_on_button"),
-                        colors = ButtonDefaults.buttonColors(containerColor = AmberWarm)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.PowerSettingsNew,
-                            contentDescription = null,
-                            modifier = Modifier.padding(end = 6.dp)
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Raumsteuerung",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
                         )
-                        Text("Alle Ein")
-                    }
 
-                    FilledTonalButton(
-                        onClick = { onToggleRoom(false) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("room_turn_all_off_button")
-                    ) {
-                        Text("Alle Aus")
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Button(
+                                onClick = { onToggleRoom(true) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("room_turn_all_on_button"),
+                                colors = ButtonDefaults.buttonColors(containerColor = AmberWarm)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PowerSettingsNew,
+                                    contentDescription = null
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Alle Ein")
+                            }
+
+                            FilledTonalButton(
+                                onClick = { onToggleRoom(false) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("room_turn_all_off_button")
+                            ) {
+                                Text("Alle Aus")
+                            }
+                        }
+
+                        if (room.hasActiveLights) {
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Gemeinsame Helligkeit",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "${room.averageBrightness}%",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = AmberWarm
+                                    )
+                                )
+                            }
+
+                            Slider(
+                                value = room.averageBrightness.toFloat(),
+                                onValueChange = { onRoomBrightnessChange(it.toInt()) },
+                                valueRange = 0f..100f,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = AmberWarm,
+                                    activeTrackColor = AmberWarm
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
                 }
+            }
 
-                if (room.devices.any { it.isLight }) {
-                    Spacer(modifier = Modifier.height(14.dp))
+            // Room Groups Section
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Gruppen (${roomGroups.size})",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    OutlinedButton(
+                        onClick = onCreateGroupClick,
+                        modifier = Modifier.testTag("create_room_group_button")
                     ) {
-                        Text(
-                            text = "Gemeinsame Helligkeit",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = "${room.averageBrightness}%",
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = AmberWarm
-                            )
-                        )
+                        Icon(imageVector = Icons.Default.Add, contentDescription = null)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Gruppe")
                     }
+                }
+            }
 
-                    Slider(
-                        value = room.averageBrightness.toFloat(),
-                        onValueChange = { onRoomBrightnessChange(it.toInt()) },
-                        valueRange = 0f..100f,
-                        colors = SliderDefaults.colors(
-                            thumbColor = AmberWarm,
-                            activeTrackColor = AmberWarm
-                        ),
-                        modifier = Modifier.fillMaxWidth()
+            if (roomGroups.isNotEmpty()) {
+                items(roomGroups, key = { it.id }) { group ->
+                    GroupCard(
+                        group = group,
+                        roomName = room.name,
+                        onToggle = { onToggleGroup(group) },
+                        onBrightnessChange = { onGroupBrightnessChange(group, it) },
+                        onEditClick = { onEditGroup(group) }
                     )
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(16.dp))
+            // Devices Section Header
+            item {
+                Text(
+                    text = "Einzelgeräte (${room.devices.size})",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
 
-        Text(
-            text = "Geräte in diesem Raum",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            modifier = Modifier.padding(vertical = 4.dp)
-        )
-
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 160.dp),
-            contentPadding = PaddingValues(bottom = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxSize()
-        ) {
             items(room.devices, key = { it.mac.ifBlank { it.ip } }) { dev ->
                 DeviceCard(
                     device = dev,

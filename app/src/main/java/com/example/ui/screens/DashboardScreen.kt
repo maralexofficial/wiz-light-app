@@ -46,7 +46,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.WizDevice
 import com.example.data.model.WizRoom
+import com.example.data.model.WizGroup
 import com.example.ui.components.DeviceCard
+import com.example.ui.components.GroupCard
 import com.example.ui.components.RoomCard
 import com.example.ui.theme.AmberGlow
 import com.example.ui.theme.AmberWarm
@@ -57,6 +59,7 @@ import com.example.ui.theme.SuccessGreen
 fun DashboardScreen(
     devices: List<WizDevice>,
     rooms: List<WizRoom>,
+    groups: List<WizGroup> = emptyList(),
     slidingBrightness: Map<String, Int>,
     onBroadcastAll: (Boolean) -> Unit,
     onRefreshDiscovery: () -> Unit,
@@ -65,6 +68,9 @@ fun DashboardScreen(
     onDeviceClick: (WizDevice) -> Unit,
     onToggleRoom: (WizRoom, Boolean) -> Unit,
     onRoomClick: (WizRoom) -> Unit,
+    onToggleGroup: (WizGroup) -> Unit = {},
+    onGroupBrightnessChange: (WizGroup, Int) -> Unit = { _, _ -> },
+    onEditGroup: (WizGroup) -> Unit = {},
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -231,6 +237,27 @@ fun DashboardScreen(
                         }
                     }
                 }
+            }
+        }
+
+        // Groups Section
+        if (groups.isNotEmpty()) {
+            item {
+                Text(
+                    text = "Gruppen (${groups.size})",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+
+            items(groups, key = { it.id }) { grp ->
+                val room = rooms.firstOrNull { it.id == grp.roomId }
+                GroupCard(
+                    group = grp,
+                    roomName = room?.name,
+                    onToggle = { onToggleGroup(grp) },
+                    onBrightnessChange = { onGroupBrightnessChange(grp, it) },
+                    onEditClick = { onEditGroup(grp) }
+                )
             }
         }
 

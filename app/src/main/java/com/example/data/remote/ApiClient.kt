@@ -2,9 +2,18 @@ package com.example.data.remote
 
 import com.example.data.model.ApiConfig
 import com.example.data.model.ApiResponse
+import com.example.data.model.CreateGroupRequest
 import com.example.data.model.DiscoveryData
+import com.example.data.model.GroupActionResult
+import com.example.data.model.GroupBrightnessRequest
+import com.example.data.model.GroupTemperatureRequest
+import com.example.data.model.SyncData
+import com.example.data.model.UpdateGroupRequest
 import com.example.data.model.WizBulbDto
 import com.example.data.model.WizDeviceState
+import com.example.data.model.WizGroupDto
+import com.example.data.model.WizGroupStateDto
+import com.example.data.model.WizRoomDto
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -84,9 +93,7 @@ class ApiClient {
         if (!trimmed.startsWith("http://", ignoreCase = true) && !trimmed.startsWith("https://", ignoreCase = true)) {
             trimmed = "http://$trimmed"
         }
-        // remove trailing slashes
         trimmed = trimmed.trimEnd('/')
-        // ensure single trailing slash for Retrofit baseUrl
         return "$trimmed/"
     }
 
@@ -119,7 +126,6 @@ class ApiClient {
                 handleHttpError(response.code(), response.errorBody()?.string())
             }
         } catch (e: Exception) {
-            // If /api/health returned 404 or failed, try root endpoint "/"
             try {
                 val rootRes = getService().getRootInfo()
                 if (rootRes.isSuccessful) {
@@ -200,16 +206,88 @@ class ApiClient {
         }
     }
 
-    suspend fun fetchDeviceState(ip: String): ApiResult<WizDeviceState> {
+    // =========================================================================
+    // Groups & Rooms API
+    // =========================================================================
+
+    suspend fun fetchSync(): ApiResult<SyncData> {
         return try {
-            val response = getService().getState(ip)
+            val response = getService().getSync()
             if (response.isSuccessful) {
-                val json = response.body()?.string() ?: ""
-                val state = parseStateFromJson(json)
-                if (state != null) {
-                    ApiResult.Success(state)
+                val jsonStr = response.body()?.string() ?: ""
+                val syncData = parseSyncData(jsonStr)
+                ApiResult.Success(syncData)
+            } else {
+                handleHttpError(response.code(), response.errorBody()?.string())
+            }
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
+    suspend fun fetchRooms(): ApiResult<List<WizRoomDto>> {
+        return try {
+            val response = getService().getRooms()
+            if (response.isSuccessful) {
+                val jsonStr = response.body()?.string() ?: ""
+                val rooms = parseRooms(jsonStr)
+                ApiResult.Success(rooms)
+            } else {
+                handleHttpError(response.code(), response.errorBody()?.string())
+            }
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
+    suspend fun fetchGroups(): ApiResult<List<WizGroupDto>> {
+        return try {
+            val response = getService().getGroups()
+            if (response.isSuccessful) {
+                val jsonStr = response.body()?.string() ?: ""
+                val groups = parseGroups(jsonStr)
+                ApiResult.Success(groups)
+            } else {
+                handleHttpError(response.code(), response.errorBody()?.string())
+            }
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
+    suspend fun fetchRoomGroups(roomId: Long): ApiResult<List<WizGroupDto>> {
+        return try {
+            val response = getService().getRoomGroups(roomId)
+            if (response.isSuccessful) {
+                val jsonStr = response.body()?.string() ?: ""
+                val groups = parseGroups(jsonStr)
+                ApiResult.Success(groups)
+            } else {
+                handleHttpError(response.code(), response.errorBody()?.string())
+            }
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
+    suspend fun createGroup(request: CreateGroupRequest): ApiResult<WizGroupDto> {
+        return try {
+            val response = getService().createGroup(request)
+            if (response.isSuccessful) {
+                val jsonStr = response.body()?.string() ?: ""
+                val group = parseSingleGroup(jsonStr)
+                if (group != null) {
+                    ApiResult.Success(group)
                 } else {
-                    ApiResult.Error("Keine Gerätezustandsdaten empfangen.")
+                    ApiResult.Success(
+                        WizGroupDto(
+                            id = "grp_${System.currentTimeMillis()}",
+                            name = request.name,
+                            roomId = request.roomId,
+                            deviceType = request.deviceType,
+                            deviceMacs = request.deviceMacs
+                        )
+                    )
                 }
             } else {
                 handleHttpError(response.code(), response.errorBody()?.string())
@@ -217,6 +295,161 @@ class ApiClient {
         } catch (e: Exception) {
             handleException(e)
         }
+    }
+
+    suspend fun updateGroup(id: String, request: UpdateGroupRequest): ApiResult<WizGroupDto> {
+        return try {
+            val response = getService().updateGroup(id, request)
+            if (response.isSuccessful) {
+                val jsonStr = response.body()?.string() ?: ""
+                val group = parseSingleGroup(jsonStr)
+                if (group != null) {
+                    ApiResult.Success(group)
+                } else {
+                    ApiResult.Success(
+                        WizGroupDto(
+                            id = id,
+                            name = request.name ?: "",
+                            deviceMacs = request.deviceMacs
+                        )
+                    )
+                }
+            } else {
+                handleHttpError(response.code(), response.errorBody()?.string())
+            }
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
+    suspend fun deleteGroup(id: String): ApiResult<Unit> {
+        return try {
+            val response = getService().deleteGroup(id)
+            if (response.isSuccessful) {
+                ApiResult.Success(Unit)
+            } else {
+                handleHttpError(response.code(), response.errorBody()?.string())
+            }
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
+    suspend fun groupOn(id: String): ApiResult<GroupActionResult> {
+        return try {
+            val response = getService().groupOn(id)
+            handleGroupActionResponse(response)
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
+    suspend fun groupOff(id: String): ApiResult<GroupActionResult> {
+        return try {
+            val response = getService().groupOff(id)
+            handleGroupActionResponse(response)
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
+    suspend fun groupBrightness(id: String, brightness: Int): ApiResult<GroupActionResult> {
+        return try {
+            // Clamped 10..100 per specification
+            val clamped = brightness.coerceIn(10, 100)
+            val response = getService().groupBrightness(id, GroupBrightnessRequest(clamped))
+            handleGroupActionResponse(response)
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
+    suspend fun groupTemperature(id: String, temperatureKelvin: Int): ApiResult<GroupActionResult> {
+        return try {
+            val clamped = temperatureKelvin.coerceIn(2000, 9000)
+            val response = getService().groupTemperature(id, GroupTemperatureRequest(clamped))
+            handleGroupActionResponse(response)
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
+    private fun handleGroupActionResponse(response: Response<ResponseBody>): ApiResult<GroupActionResult> {
+        val code = response.code()
+        val bodyStr = if (response.isSuccessful || code == 207) {
+            response.body()?.string() ?: response.errorBody()?.string().orEmpty()
+        } else {
+            response.errorBody()?.string().orEmpty()
+        }
+
+        if (code == 200 || code == 204) {
+            return ApiResult.Success(
+                GroupActionResult(
+                    isFullSuccess = true,
+                    isPartialSuccess = false,
+                    successfulCount = 0,
+                    failedCount = 0,
+                    message = "Gruppe erfolgreich geschaltet."
+                )
+            )
+        }
+
+        if (code == 207) {
+            // Multi-status partial failure handling
+            val parsedResult = parseMultiStatus(bodyStr)
+            return ApiResult.Success(parsedResult)
+        }
+
+        return handleHttpError(code, bodyStr)
+    }
+
+    private fun parseMultiStatus(jsonStr: String): GroupActionResult {
+        var total = 0
+        var successCount = 0
+        var failCount = 0
+
+        try {
+            val root = JSONObject(jsonStr)
+            val dataObj = if (root.has("data")) root.optJSONObject("data") else root
+            if (dataObj != null) {
+                if (dataObj.has("successful") && dataObj.has("failed")) {
+                    successCount = dataObj.optInt("successful", 0)
+                    failCount = dataObj.optInt("failed", 0)
+                    total = dataObj.optInt("total", successCount + failCount)
+                } else if (dataObj.has("results")) {
+                    val arr = dataObj.optJSONArray("results")
+                    if (arr != null) {
+                        total = arr.length()
+                        for (i in 0 until arr.length()) {
+                            val item = arr.optJSONObject(i)
+                            if (item != null && item.optBoolean("success", false)) {
+                                successCount++
+                            } else {
+                                failCount++
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        if (total == 0) {
+            total = successCount + failCount
+        }
+
+        val msg = if (failCount > 0) {
+            "Teilweiser Erfolg (HTTP 207): $successCount erfolgreich, $failCount fehlgeschlagen."
+        } else {
+            "Gruppe geschaltet ($successCount Geräte erfolgreich)."
+        }
+
+        return GroupActionResult(
+            isFullSuccess = failCount == 0,
+            isPartialSuccess = failCount > 0,
+            successfulCount = successCount,
+            failedCount = failCount,
+            message = msg
+        )
     }
 
     private fun handleDiscoveryResponse(response: Response<ApiResponse<DiscoveryData>>): ApiResult<List<WizBulbDto>> {
@@ -267,9 +500,10 @@ class ApiClient {
         }
 
         val message = when (code) {
+            400 -> parsedApiMessage ?: "Ungültige Anfrage: Bitte Eingaben und Gruppenzuordnungen prüfen (HTTP 400)."
             401 -> "Authentifizierung fehlgeschlagen: Ungültiges oder abgelaufenes API-Token (HTTP 401)."
             403 -> "Zugriff verweigert: Fehlende Berechtigung für diese Anfrage (HTTP 403)."
-            404 -> "API-Endpunkt nicht gefunden: Bitte URL und Konfiguration prüfen (HTTP 404)."
+            404 -> "API-Endpunkt oder Ressource nicht gefunden: Bitte URL und ID prüfen (HTTP 404)."
             502 -> "Geräte-Timeout: Das WiZ-Gerät hat nicht rechtzeitig geantwortet (HTTP 502 Bad Gateway)."
             504 -> "Gateway-Timeout: Zeitüberschreitung bei der Kommunikation mit dem WiZ-Gerät (HTTP 504)."
             in 500..599 -> "Serverfehler: Die REST-API meldet einen internen Fehler (HTTP $code)."
@@ -305,31 +539,130 @@ class ApiClient {
         }
     }
 
-    private fun parseStateFromJson(jsonStr: String): WizDeviceState? {
+    private fun parseSyncData(jsonStr: String): SyncData {
         return try {
-            val obj = JSONObject(jsonStr)
-            val stateObj: JSONObject = when {
-                obj.has("data") -> {
-                    val data = obj.opt("data")
-                    if (data is JSONObject) {
-                        data.optJSONObject("state") ?: data
-                    } else obj
+            val root = JSONObject(jsonStr)
+            val dataObj = if (root.has("data")) root.optJSONObject("data") ?: root else root
+
+            val revision = if (dataObj.has("revision")) dataObj.optLong("revision") else null
+            val updatedAt = if (dataObj.has("updatedAt")) dataObj.optString("updatedAt") else null
+
+            val roomList = mutableListOf<WizRoomDto>()
+            val roomsArr = dataObj.optJSONArray("rooms")
+            if (roomsArr != null) {
+                for (i in 0 until roomsArr.length()) {
+                    val rObj = roomsArr.optJSONObject(i) ?: continue
+                    val id = rObj.optLong("id", rObj.optLong("roomId", 0L))
+                    val name = rObj.optString("name", rObj.optString("roomName", "Raum $id"))
+                    roomList.add(WizRoomDto(id, name))
                 }
-                obj.has("state") -> obj.optJSONObject("state") ?: obj
-                else -> obj
             }
 
-            WizDeviceState(
-                state = stateObj.optBoolean("state", false),
-                sceneId = if (stateObj.has("sceneId")) stateObj.optInt("sceneId") else null,
-                temp = if (stateObj.has("temp")) stateObj.optInt("temp") else null,
-                dimming = if (stateObj.has("dimming")) stateObj.optInt("dimming") else 100,
-                r = if (stateObj.has("r")) stateObj.optInt("r") else null,
-                g = if (stateObj.has("g")) stateObj.optInt("g") else null,
-                b = if (stateObj.has("b")) stateObj.optInt("b") else null
+            val groupList = mutableListOf<WizGroupDto>()
+            val groupsArr = dataObj.optJSONArray("groups")
+            if (groupsArr != null) {
+                for (i in 0 until groupsArr.length()) {
+                    val gObj = groupsArr.optJSONObject(i) ?: continue
+                    val group = jsonToGroupDto(gObj)
+                    if (group != null) groupList.add(group)
+                }
+            }
+
+            SyncData(
+                revision = revision,
+                updatedAt = updatedAt,
+                rooms = roomList,
+                groups = groupList
             )
+        } catch (_: Exception) {
+            SyncData()
+        }
+    }
+
+    private fun parseRooms(jsonStr: String): List<WizRoomDto> {
+        val list = mutableListOf<WizRoomDto>()
+        try {
+            val root = JSONObject(jsonStr)
+            val arr = (if (root.has("data")) {
+                val d = root.opt("data")
+                if (d is JSONArray) d else if (d is JSONObject && d.has("rooms")) d.optJSONArray("rooms") else null
+            } else if (root.has("rooms")) {
+                root.optJSONArray("rooms")
+            } else null) ?: return list
+
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val id = obj.optLong("id", obj.optLong("roomId", 0L))
+                val name = obj.optString("name", obj.optString("roomName", "Raum $id"))
+                list.add(WizRoomDto(id, name))
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
+    private fun parseGroups(jsonStr: String): List<WizGroupDto> {
+        val list = mutableListOf<WizGroupDto>()
+        try {
+            val root = JSONObject(jsonStr)
+            val arr = (if (root.has("data")) {
+                val d = root.opt("data")
+                if (d is JSONArray) d else if (d is JSONObject && d.has("groups")) d.optJSONArray("groups") else null
+            } else if (root.has("groups")) {
+                root.optJSONArray("groups")
+            } else null) ?: return list
+
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val group = jsonToGroupDto(obj)
+                if (group != null) list.add(group)
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
+    private fun parseSingleGroup(jsonStr: String): WizGroupDto? {
+        return try {
+            val root = JSONObject(jsonStr)
+            val obj = if (root.has("data")) root.optJSONObject("data") ?: root else root
+            jsonToGroupDto(obj)
         } catch (_: Exception) {
             null
         }
+    }
+
+    private fun jsonToGroupDto(obj: JSONObject): WizGroupDto? {
+        val id = obj.optString("id", obj.optString("_id", ""))
+        if (id.isBlank()) return null
+        val name = obj.optString("name", "Gruppe")
+        val roomId = obj.optLong("roomId", 0L)
+        val deviceType = obj.optString("deviceType", "light")
+
+        val members = mutableListOf<String>()
+        val membersArr = obj.optJSONArray("deviceMacs") ?: obj.optJSONArray("members")
+        if (membersArr != null) {
+            for (j in 0 until membersArr.length()) {
+                val m = membersArr.optString(j)
+                if (!m.isNullOrBlank()) members.add(m)
+            }
+        }
+
+        val stateObj = obj.optJSONObject("state")
+        val stateDto = if (stateObj != null) {
+            WizGroupStateDto(
+                state = stateObj.optBoolean("state", false),
+                dimming = if (stateObj.has("dimming")) stateObj.optInt("dimming") else 100,
+                temp = if (stateObj.has("temp")) stateObj.optInt("temp") else null,
+                temperature = if (stateObj.has("temperature")) stateObj.optInt("temperature") else null
+            )
+        } else null
+
+        return WizGroupDto(
+            id = id,
+            name = name,
+            roomId = roomId,
+            deviceType = deviceType,
+            deviceMacs = members,
+            state = stateDto
+        )
     }
 }

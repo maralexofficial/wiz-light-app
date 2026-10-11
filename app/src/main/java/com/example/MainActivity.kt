@@ -37,7 +37,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.AppTab
 import com.example.ui.MainViewModel
+import com.example.ui.components.CreateGroupDialog
 import com.example.ui.components.DeviceDetailSheet
+import com.example.ui.components.EditGroupDialog
 import com.example.ui.components.RoomDetailView
 import com.example.ui.components.WizTopBar
 import com.example.ui.screens.DashboardScreen
@@ -65,11 +67,15 @@ class MainActivity : ComponentActivity() {
 fun WizAppContent(viewModel: MainViewModel) {
     val devices by viewModel.devices.collectAsStateWithLifecycle()
     val rooms by viewModel.rooms.collectAsStateWithLifecycle()
+    val groups by viewModel.groups.collectAsStateWithLifecycle()
     val apiConfig by viewModel.apiConfig.collectAsStateWithLifecycle()
     val isDiscovering by viewModel.isDiscovering.collectAsStateWithLifecycle()
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     val selectedRoomId by viewModel.selectedRoomId.collectAsStateWithLifecycle()
     val selectedDevice by viewModel.selectedDevice.collectAsStateWithLifecycle()
+    val showCreateGroupDialog by viewModel.showCreateGroupDialog.collectAsStateWithLifecycle()
+    val createGroupPreselectedRoomId by viewModel.createGroupPreselectedRoomId.collectAsStateWithLifecycle()
+    val editingGroup by viewModel.editingGroup.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val deviceFilter by viewModel.deviceFilter.collectAsStateWithLifecycle()
     val filteredDevices by viewModel.filteredDevices.collectAsStateWithLifecycle()
@@ -216,19 +222,25 @@ fun WizAppContent(viewModel: MainViewModel) {
                 if (selectedRoom != null) {
                     RoomDetailView(
                         room = selectedRoom,
+                        groups = groups,
                         slidingBrightness = slidingBrightness,
                         onBack = { viewModel.selectRoom(null) },
                         onToggleDevice = { viewModel.toggleDevice(it) },
                         onDeviceBrightnessChange = { dev, b -> viewModel.onBrightnessChange(dev, b) },
                         onDeviceClick = { viewModel.selectDevice(it) },
                         onToggleRoom = { viewModel.toggleRoom(selectedRoom, it) },
-                        onRoomBrightnessChange = { viewModel.setRoomBrightness(selectedRoom, it) }
+                        onRoomBrightnessChange = { viewModel.setRoomBrightness(selectedRoom, it) },
+                        onToggleGroup = { viewModel.toggleGroup(it) },
+                        onGroupBrightnessChange = { grp, b -> viewModel.onGroupBrightnessChange(grp, b) },
+                        onEditGroup = { viewModel.openEditGroupDialog(it) },
+                        onCreateGroupClick = { viewModel.openCreateGroupDialog(selectedRoom.id) }
                     )
                 } else {
                     when (selectedTab) {
                         AppTab.DASHBOARD -> DashboardScreen(
                             devices = devices,
                             rooms = rooms,
+                            groups = groups,
                             slidingBrightness = slidingBrightness,
                             onBroadcastAll = { viewModel.broadcastAll(it) },
                             onRefreshDiscovery = { viewModel.refreshDevices(showToast = true) },
@@ -237,6 +249,9 @@ fun WizAppContent(viewModel: MainViewModel) {
                             onDeviceClick = { viewModel.selectDevice(it) },
                             onToggleRoom = { r, on -> viewModel.toggleRoom(r, on) },
                             onRoomClick = { viewModel.selectRoom(it.id) },
+                            onToggleGroup = { viewModel.toggleGroup(it) },
+                            onGroupBrightnessChange = { grp, b -> viewModel.onGroupBrightnessChange(grp, b) },
+                            onEditGroup = { viewModel.openEditGroupDialog(it) },
                             onNavigateToSettings = { viewModel.selectTab(AppTab.SETTINGS) }
                         )
 
@@ -266,6 +281,7 @@ fun WizAppContent(viewModel: MainViewModel) {
                             onTestConnection = { viewModel.testConnection() },
                             onSaveConfig = { viewModel.saveConfig(it) },
                             onRefreshDiscovery = { viewModel.refreshDevices(showToast = true) },
+                            onSyncData = { viewModel.syncData() },
                             onResetConfig = { viewModel.clearAllData() }
                         )
                     }
@@ -282,6 +298,35 @@ fun WizAppContent(viewModel: MainViewModel) {
                 onToggle = { viewModel.toggleDevice(dev) },
                 onBrightnessChange = { viewModel.onBrightnessChange(dev, it) },
                 onColorChange = { r, g, b -> viewModel.setDeviceColor(dev, r, g, b) }
+            )
+        }
+
+        // Create Group Dialog
+        if (showCreateGroupDialog) {
+            CreateGroupDialog(
+                rooms = rooms,
+                allDevices = devices,
+                preselectedRoomId = createGroupPreselectedRoomId,
+                onDismiss = { viewModel.closeCreateGroupDialog() },
+                onCreate = { name, roomId, type, macs ->
+                    viewModel.createGroup(name, roomId, type, macs)
+                }
+            )
+        }
+
+        // Edit Group Dialog
+        editingGroup?.let { grp ->
+            val roomDevs = devices.filter { it.roomId == grp.roomId }
+            EditGroupDialog(
+                group = grp,
+                roomDevices = roomDevs,
+                onDismiss = { viewModel.closeEditGroupDialog() },
+                onSave = { name, macs ->
+                    viewModel.updateGroup(grp.id, name, macs)
+                },
+                onDelete = {
+                    viewModel.deleteGroup(grp)
+                }
             )
         }
     }

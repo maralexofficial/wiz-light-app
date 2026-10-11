@@ -42,3 +42,17 @@ data class ColorRequest(
     @Json(name = "g") val g: Int,
     @Json(name = "b") val b: Int
 )
+
+@JsonClass(generateAdapter = true)
+data class WizRoomDto(
+    @Json(name = "id") val id: Long,
+    @Json(name = "name") val name: String
+)
+
+@JsonClass(generateAdapter = true)
+data class SyncData(
+    @Json(name = "revision") val revision: Long? = null,
+    @Json(name = "updatedAt") val updatedAt: String? = null,
+    @Json(name = "rooms") val rooms: List<WizRoomDto>? = null,
+    @Json(name = "groups") val groups: List<WizGroupDto>? = null
+)

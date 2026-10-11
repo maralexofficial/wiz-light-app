@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.example.data.model.ApiConfig
 import com.example.data.model.WizBulbDto
+import com.example.data.model.WizGroupDto
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -15,6 +16,8 @@ class PreferencesManager(context: Context) {
     private val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
     private val bulbListType = Types.newParameterizedType(List::class.java, WizBulbDto::class.java)
     private val bulbListAdapter = moshi.adapter<List<WizBulbDto>>(bulbListType)
+    private val groupListType = Types.newParameterizedType(List::class.java, WizGroupDto::class.java)
+    private val groupListAdapter = moshi.adapter<List<WizGroupDto>>(groupListType)
 
     fun getApiConfig(): ApiConfig {
         return ApiConfig(
@@ -26,7 +29,11 @@ class PreferencesManager(context: Context) {
             lastTestStatus = if (prefs.contains(KEY_LAST_TEST_STATUS)) prefs.getBoolean(KEY_LAST_TEST_STATUS, false) else null,
             lastTestMessage = prefs.getString(KEY_LAST_TEST_MSG, null),
             lastTestTimestamp = if (prefs.contains(KEY_LAST_TEST_TIME)) prefs.getLong(KEY_LAST_TEST_TIME, 0L) else null,
-            lastSyncTimestamp = if (prefs.contains(KEY_LAST_SYNC_TIME)) prefs.getLong(KEY_LAST_SYNC_TIME, 0L) else null
+            lastSyncTimestamp = if (prefs.contains(KEY_LAST_SYNC_TIME)) prefs.getLong(KEY_LAST_SYNC_TIME, 0L) else null,
+            syncMode = prefs.getString(KEY_SYNC_MODE, "AUTO") ?: "AUTO",
+            lastRevision = if (prefs.contains(KEY_LAST_REVISION)) prefs.getLong(KEY_LAST_REVISION, 0L) else null,
+            serverUpdatedAt = prefs.getString(KEY_SERVER_UPDATED_AT, null),
+            lastSyncError = prefs.getString(KEY_LAST_SYNC_ERROR, null)
         )
     }
 
@@ -37,6 +44,7 @@ class PreferencesManager(context: Context) {
             putBoolean(KEY_AUTO_REFRESH, config.autoRefresh)
             putInt(KEY_REFRESH_INTERVAL, config.refreshIntervalSeconds)
             putString(KEY_THEME_MODE, config.themeMode)
+            putString(KEY_SYNC_MODE, config.syncMode)
             if (config.lastTestStatus != null) {
                 putBoolean(KEY_LAST_TEST_STATUS, config.lastTestStatus)
             }
@@ -48,6 +56,21 @@ class PreferencesManager(context: Context) {
             }
             if (config.lastSyncTimestamp != null) {
                 putLong(KEY_LAST_SYNC_TIME, config.lastSyncTimestamp)
+            }
+            if (config.lastRevision != null) {
+                putLong(KEY_LAST_REVISION, config.lastRevision)
+            } else {
+                remove(KEY_LAST_REVISION)
+            }
+            if (config.serverUpdatedAt != null) {
+                putString(KEY_SERVER_UPDATED_AT, config.serverUpdatedAt)
+            } else {
+                remove(KEY_SERVER_UPDATED_AT)
+            }
+            if (config.lastSyncError != null) {
+                putString(KEY_LAST_SYNC_ERROR, config.lastSyncError)
+            } else {
+                remove(KEY_LAST_SYNC_ERROR)
             }
             apply()
         }
@@ -69,6 +92,22 @@ class PreferencesManager(context: Context) {
         }
     }
 
+    fun saveCachedGroups(groups: List<WizGroupDto>) {
+        try {
+            val json = groupListAdapter.toJson(groups)
+            prefs.edit().putString(KEY_CACHED_GROUPS, json).apply()
+        } catch (_: Exception) {}
+    }
+
+    fun getCachedGroups(): List<WizGroupDto> {
+        val json = prefs.getString(KEY_CACHED_GROUPS, null) ?: return emptyList()
+        return try {
+            groupListAdapter.fromJson(json) ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     fun clearAll() {
         prefs.edit().clear().apply()
     }
@@ -84,5 +123,10 @@ class PreferencesManager(context: Context) {
         private const val KEY_LAST_TEST_TIME = "last_test_time"
         private const val KEY_LAST_SYNC_TIME = "last_sync_time"
         private const val KEY_CACHED_DEVICES = "cached_devices"
+        private const val KEY_SYNC_MODE = "sync_mode"
+        private const val KEY_LAST_REVISION = "last_revision"
+        private const val KEY_SERVER_UPDATED_AT = "server_updated_at"
+        private const val KEY_LAST_SYNC_ERROR = "last_sync_error"
+        private const val KEY_CACHED_GROUPS = "cached_groups"
     }
 }

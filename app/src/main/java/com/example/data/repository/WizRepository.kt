@@ -2,9 +2,16 @@ package com.example.data.repository
 
 import com.example.data.local.PreferencesManager
 import com.example.data.model.ApiConfig
+import com.example.data.model.CreateGroupRequest
+import com.example.data.model.GroupActionResult
+import com.example.data.model.SyncData
+import com.example.data.model.UpdateGroupRequest
 import com.example.data.model.WizBulbDto
 import com.example.data.model.WizDevice
 import com.example.data.model.WizDeviceState
+import com.example.data.model.WizGroup
+import com.example.data.model.WizGroupDto
+import com.example.data.model.WizGroupStateDto
 import com.example.data.model.WizRoom
 import com.example.data.remote.ApiClient
 import com.example.data.remote.ApiResult
@@ -34,6 +41,9 @@ class WizRepository(
     private val _rooms = MutableStateFlow<List<WizRoom>>(emptyList())
     val rooms: StateFlow<List<WizRoom>> = _rooms.asStateFlow()
 
+    private val _groups = MutableStateFlow<List<WizGroup>>(emptyList())
+    val groups: StateFlow<List<WizGroup>> = _groups.asStateFlow()
+
     private val _apiConfig = MutableStateFlow(preferencesManager.getApiConfig())
     val apiConfig: StateFlow<ApiConfig> = _apiConfig.asStateFlow()
 
@@ -54,6 +64,10 @@ class WizRepository(
             val mapped = cachedDtos.map { dtoToDomain(it, isOnline = true) }
             _devices.value = mapped
             updateRoomsFromDevices(mapped)
+        }
+        val cachedGroupDtos = preferencesManager.getCachedGroups()
+        if (cachedGroupDtos.isNotEmpty()) {
+            _groups.value = cachedGroupDtos.map { groupDtoToDomain(it) }
         }
     }
 
@@ -294,10 +308,217 @@ class WizRepository(
         updateRoomsFromDevices(list)
     }
 
+    private fun groupDtoToDomain(dto: WizGroupDto): WizGroup {
+        val macs = dto.deviceMacs ?: dto.members ?: emptyList()
+        val state = dto.state
+        return WizGroup(
+            id = dto.id,
+            name = dto.name.ifBlank { "Gruppe" },
+            roomId = dto.roomId,
+            deviceType = dto.deviceType.ifBlank { "light" },
+            deviceMacs = macs,
+            isTurnedOn = state?.state ?: false,
+            brightnessPercent = state?.dimming ?: 100,
+            temperatureKelvin = state?.temperature ?: state?.temp
+        )
+    }
+
+    private fun groupDomainToDto(group: WizGroup): WizGroupDto {
+        return WizGroupDto(
+            id = group.id,
+            name = group.name,
+            roomId = group.roomId,
+            deviceType = group.deviceType,
+            deviceMacs = group.deviceMacs,
+            state = WizGroupStateDto(
+                state = group.isTurnedOn,
+                dimming = group.brightnessPercent,
+                temperature = group.temperatureKelvin
+            )
+        )
+    }
+
+    suspend fun fetchGroups(): ApiResult<List<WizGroup>> {
+        when (val res = apiClient.fetchGroups()) {
+            is ApiResult.Success -> {
+                val mapped = res.data.map { groupDtoToDomain(it) }
+                _groups.value = mapped
+                preferencesManager.saveCachedGroups(res.data)
+                return ApiResult.Success(mapped)
+            }
+            is ApiResult.Error -> {
+                _eventMessages.emit("Fehler beim Abrufen der Gruppen: ${res.message}")
+                return ApiResult.Error(res.message, res.code, res.httpStatus)
+            }
+        }
+    }
+
+    suspend fun createGroup(name: String, roomId: Long, deviceType: String, deviceMacs: List<String>): ApiResult<WizGroup> {
+        val req = CreateGroupRequest(name = name, roomId = roomId, deviceType = deviceType, deviceMacs = deviceMacs)
+        when (val res = apiClient.createGroup(req)) {
+            is ApiResult.Success -> {
+                val newGroup = groupDtoToDomain(res.data)
+                val updated = (_groups.value.filter { it.id != newGroup.id } + newGroup).sortedBy { it.name }
+                _groups.value = updated
+                preferencesManager.saveCachedGroups(updated.map { groupDomainToDto(it) })
+                _eventMessages.emit("Gruppe '${newGroup.name}' erfolgreich erstellt.")
+                return ApiResult.Success(newGroup)
+            }
+            is ApiResult.Error -> {
+                _eventMessages.emit("Fehler beim Erstellen der Gruppe: ${res.message}")
+                return ApiResult.Error(res.message, res.code, res.httpStatus)
+            }
+        }
+    }
+
+    suspend fun updateGroup(id: String, name: String? = null, deviceMacs: List<String>? = null): ApiResult<WizGroup> {
+        val req = UpdateGroupRequest(name = name, deviceMacs = deviceMacs)
+        when (val res = apiClient.updateGroup(id, req)) {
+            is ApiResult.Success -> {
+                val updatedGroup = groupDtoToDomain(res.data)
+                val updated = _groups.value.map { if (it.id == id) updatedGroup else it }.sortedBy { it.name }
+                _groups.value = updated
+                preferencesManager.saveCachedGroups(updated.map { groupDomainToDto(it) })
+                _eventMessages.emit("Gruppe '${updatedGroup.name}' aktualisiert.")
+                return ApiResult.Success(updatedGroup)
+            }
+            is ApiResult.Error -> {
+                _eventMessages.emit("Fehler beim Aktualisieren der Gruppe: ${res.message}")
+                return ApiResult.Error(res.message, res.code, res.httpStatus)
+            }
+        }
+    }
+
+    suspend fun deleteGroup(id: String): ApiResult<Unit> {
+        when (val res = apiClient.deleteGroup(id)) {
+            is ApiResult.Success -> {
+                val updated = _groups.value.filter { it.id != id }
+                _groups.value = updated
+                preferencesManager.saveCachedGroups(updated.map { groupDomainToDto(it) })
+                _eventMessages.emit("Gruppe gelöscht.")
+                return ApiResult.Success(Unit)
+            }
+            is ApiResult.Error -> {
+                _eventMessages.emit("Fehler beim Löschen der Gruppe: ${res.message}")
+                return ApiResult.Error(res.message, res.code, res.httpStatus)
+            }
+        }
+    }
+
+    suspend fun setGroupPower(group: WizGroup, turnOn: Boolean) {
+        val originalGroups = _groups.value
+        // Optimistic update for group state
+        _groups.value = _groups.value.map {
+            if (it.id == group.id) it.copy(isTurnedOn = turnOn) else it
+        }
+
+        // Also optimistically update devices that belong to this group
+        val macSet = group.deviceMacs.map { it.trim().lowercase() }.toSet()
+        if (macSet.isNotEmpty()) {
+            val updatedDevs = _devices.value.map { dev ->
+                val devMac = dev.mac.trim().lowercase()
+                if (macSet.contains(devMac)) dev.copy(state = dev.state.copy(state = turnOn)) else dev
+            }
+            _devices.value = updatedDevs
+            updateRoomsFromDevices(updatedDevs)
+        }
+
+        val res = if (turnOn) apiClient.groupOn(group.id) else apiClient.groupOff(group.id)
+        when (res) {
+            is ApiResult.Success -> {
+                if (res.data.isPartialSuccess) {
+                    _eventMessages.emit(res.data.message)
+                }
+            }
+            is ApiResult.Error -> {
+                // Rollback
+                _groups.value = originalGroups
+                _eventMessages.emit("Fehler beim Schalten der Gruppe '${group.name}': ${res.message}")
+            }
+        }
+    }
+
+    suspend fun setGroupBrightness(group: WizGroup, brightness: Int) {
+        val clamped = brightness.coerceIn(10, 100)
+        val originalGroups = _groups.value
+        _groups.value = _groups.value.map {
+            if (it.id == group.id) it.copy(brightnessPercent = clamped, isTurnedOn = true) else it
+        }
+
+        val macSet = group.deviceMacs.map { it.trim().lowercase() }.toSet()
+        if (macSet.isNotEmpty()) {
+            val updatedDevs = _devices.value.map { dev ->
+                val devMac = dev.mac.trim().lowercase()
+                if (macSet.contains(devMac)) {
+                    dev.copy(state = dev.state.copy(dimming = clamped, state = true))
+                } else dev
+            }
+            _devices.value = updatedDevs
+            updateRoomsFromDevices(updatedDevs)
+        }
+
+        val res = apiClient.groupBrightness(group.id, clamped)
+        when (res) {
+            is ApiResult.Success -> {
+                if (res.data.isPartialSuccess) {
+                    _eventMessages.emit(res.data.message)
+                }
+            }
+            is ApiResult.Error -> {
+                _groups.value = originalGroups
+                _eventMessages.emit("Fehler beim Dimmen der Gruppe '${group.name}': ${res.message}")
+            }
+        }
+    }
+
+    suspend fun setGroupTemperature(group: WizGroup, tempKelvin: Int) {
+        val clamped = tempKelvin.coerceIn(2000, 9000)
+        _groups.value = _groups.value.map {
+            if (it.id == group.id) it.copy(temperatureKelvin = clamped, isTurnedOn = true) else it
+        }
+
+        val res = apiClient.groupTemperature(group.id, clamped)
+        if (res is ApiResult.Error) {
+            _eventMessages.emit("Fehler bei Farbtemperatur der Gruppe: ${res.message}")
+        }
+    }
+
+    suspend fun syncRoomsAndGroups(): ApiResult<SyncData> {
+        when (val res = apiClient.fetchSync()) {
+            is ApiResult.Success -> {
+                val syncData = res.data
+                val syncGroups = syncData.groups
+                if (!syncGroups.isNullOrEmpty()) {
+                    val domainGroups = syncGroups.map { groupDtoToDomain(it) }
+                    _groups.value = domainGroups
+                    preferencesManager.saveCachedGroups(syncGroups)
+                }
+                val now = System.currentTimeMillis()
+                val updatedCfg = _apiConfig.value.copy(
+                    lastSyncTimestamp = now,
+                    lastRevision = syncData.revision,
+                    serverUpdatedAt = syncData.updatedAt,
+                    lastSyncError = null
+                )
+                updateConfig(updatedCfg)
+                _eventMessages.emit("Synchronisation erfolgreich (Revision: ${syncData.revision}).")
+                return ApiResult.Success(syncData)
+            }
+            is ApiResult.Error -> {
+                // Fallback: try fetching groups directly
+                fetchGroups()
+                val updatedCfg = _apiConfig.value.copy(lastSyncError = res.message)
+                updateConfig(updatedCfg)
+                return ApiResult.Error(res.message, res.code, res.httpStatus)
+            }
+        }
+    }
+
     fun clearLocalConfiguration() {
         preferencesManager.clearAll()
         _devices.value = emptyList()
         _rooms.value = emptyList()
+        _groups.value = emptyList()
         _apiConfig.value = ApiConfig()
         apiClient.updateConfig(_apiConfig.value)
     }

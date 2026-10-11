@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.local.PreferencesManager
 import com.example.data.model.ApiConfig
 import com.example.data.model.WizDevice
+import com.example.data.model.WizGroup
 import com.example.data.model.WizRoom
 import com.example.data.remote.ApiResult
 import com.example.data.repository.WizRepository
@@ -32,6 +33,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val devices: StateFlow<List<WizDevice>> = repository.devices
     val rooms: StateFlow<List<WizRoom>> = repository.rooms
+    val groups: StateFlow<List<WizGroup>> = repository.groups
     val apiConfig: StateFlow<ApiConfig> = repository.apiConfig
     val isDiscovering: StateFlow<Boolean> = repository.isDiscovering
 
@@ -43,6 +45,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _selectedDevice = MutableStateFlow<WizDevice?>(null)
     val selectedDevice: StateFlow<WizDevice?> = _selectedDevice.asStateFlow()
+
+    private val _showCreateGroupDialog = MutableStateFlow(false)
+    val showCreateGroupDialog: StateFlow<Boolean> = _showCreateGroupDialog.asStateFlow()
+
+    private val _createGroupPreselectedRoomId = MutableStateFlow<Long?>(null)
+    val createGroupPreselectedRoomId: StateFlow<Long?> = _createGroupPreselectedRoomId.asStateFlow()
+
+    private val _editingGroup = MutableStateFlow<WizGroup?>(null)
+    val editingGroup: StateFlow<WizGroup?> = _editingGroup.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -248,6 +259,75 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun saveConfig(newConfig: ApiConfig) {
         repository.updateConfig(newConfig)
         _feedbackMessage.value = "Einstellungen erfolgreich gespeichert."
+    }
+
+    fun openCreateGroupDialog(roomId: Long? = null) {
+        _createGroupPreselectedRoomId.value = roomId
+        _showCreateGroupDialog.value = true
+    }
+
+    fun closeCreateGroupDialog() {
+        _showCreateGroupDialog.value = false
+        _createGroupPreselectedRoomId.value = null
+    }
+
+    fun openEditGroupDialog(group: WizGroup) {
+        _editingGroup.value = group
+    }
+
+    fun closeEditGroupDialog() {
+        _editingGroup.value = null
+    }
+
+    fun toggleGroup(group: WizGroup) {
+        viewModelScope.launch {
+            repository.setGroupPower(group, !group.isTurnedOn)
+        }
+    }
+
+    fun onGroupBrightnessChange(group: WizGroup, brightness: Int) {
+        viewModelScope.launch {
+            repository.setGroupBrightness(group, brightness)
+        }
+    }
+
+    fun setGroupTemperature(group: WizGroup, tempKelvin: Int) {
+        viewModelScope.launch {
+            repository.setGroupTemperature(group, tempKelvin)
+        }
+    }
+
+    fun createGroup(name: String, roomId: Long, deviceType: String, deviceMacs: List<String>) {
+        viewModelScope.launch {
+            val res = repository.createGroup(name, roomId, deviceType, deviceMacs)
+            if (res is ApiResult.Success) {
+                closeCreateGroupDialog()
+            }
+        }
+    }
+
+    fun updateGroup(id: String, name: String?, deviceMacs: List<String>?) {
+        viewModelScope.launch {
+            val res = repository.updateGroup(id, name, deviceMacs)
+            if (res is ApiResult.Success) {
+                closeEditGroupDialog()
+            }
+        }
+    }
+
+    fun deleteGroup(group: WizGroup) {
+        viewModelScope.launch {
+            val res = repository.deleteGroup(group.id)
+            if (res is ApiResult.Success) {
+                closeEditGroupDialog()
+            }
+        }
+    }
+
+    fun syncData() {
+        viewModelScope.launch {
+            repository.syncRoomsAndGroups()
+        }
     }
 
     fun clearAllData() {

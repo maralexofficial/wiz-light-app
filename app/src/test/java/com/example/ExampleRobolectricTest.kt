@@ -95,4 +95,62 @@ class ExampleRobolectricTest {
         assertTrue(room.hasActiveLights)
         assertEquals(60, room.averageBrightness)
     }
+
+    @Test
+    fun `test WizGroup properties and device type differentiation`() {
+        val lightGroup = com.example.data.model.WizGroup(
+            id = "grp_1",
+            name = "Deckenstrahler",
+            roomId = 1L,
+            deviceType = "light",
+            deviceMacs = listOf("cc4085a3349e", "cc4085a3349f"),
+            isTurnedOn = true,
+            brightnessPercent = 80,
+            temperatureKelvin = 2700
+        )
+
+        assertTrue(lightGroup.isLight)
+        assertFalse(lightGroup.isPlug)
+        assertEquals(2, lightGroup.memberCount)
+        assertEquals(80, lightGroup.brightnessPercent)
+        assertEquals(2700, lightGroup.temperatureKelvin)
+
+        val plugGroup = com.example.data.model.WizGroup(
+            id = "grp_2",
+            name = "Schreibtisch-Steckdosen",
+            roomId = 2L,
+            deviceType = "plug",
+            deviceMacs = listOf("cc4085a334aa"),
+            isTurnedOn = false
+        )
+
+        assertTrue(plugGroup.isPlug)
+        assertFalse(plugGroup.isLight)
+        assertEquals(1, plugGroup.memberCount)
+    }
+
+    @Test
+    fun `test GroupActionResult multi-status evaluation`() {
+        val partialResult = com.example.data.model.GroupActionResult(
+            isFullSuccess = false,
+            isPartialSuccess = true,
+            successfulCount = 2,
+            failedCount = 1,
+            message = "Teilweiser Erfolg (HTTP 207)"
+        )
+        assertFalse(partialResult.isFullSuccess)
+        assertTrue(partialResult.isPartialSuccess)
+        assertEquals(2, partialResult.successfulCount)
+        assertEquals(1, partialResult.failedCount)
+
+        val fullSuccess = com.example.data.model.GroupActionResult(
+            isFullSuccess = true,
+            isPartialSuccess = false,
+            successfulCount = 3,
+            failedCount = 0,
+            message = "Gruppe erfolgreich geschaltet"
+        )
+        assertTrue(fullSuccess.isFullSuccess)
+        assertFalse(fullSuccess.isPartialSuccess)
+    }
 }
