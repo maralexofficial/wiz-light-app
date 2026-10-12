@@ -3,6 +3,7 @@ package com.example.data.model
 data class ApiConfig(
     val baseUrl: String = "http://192.168.1.100:3000",
     val apiToken: String = "",
+    val isConfigured: Boolean = false,
     val autoRefresh: Boolean = false,
     val refreshIntervalSeconds: Int = 30,
     val themeMode: String = "system",
@@ -13,5 +14,6 @@ data class ApiConfig(
     val syncMode: String = "AUTO", // "AUTO" or "MANUAL"
     val lastRevision: Long? = null,
     val serverUpdatedAt: String? = null,
-    val lastSyncError: String? = null
+    val lastSyncError: String? = null,
+    val tokenPermissions: TokenPermissions = TokenPermissions.ALL_GRANTED
 )

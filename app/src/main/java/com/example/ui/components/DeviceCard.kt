@@ -57,6 +57,7 @@ fun DeviceCard(
     onToggle: () -> Unit,
     onBrightnessChange: (Int) -> Unit,
     onClick: () -> Unit,
+    canControl: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val isOn = device.isOnline && device.isTurnedOn
@@ -133,7 +134,8 @@ fun DeviceCard(
                 if (device.isOnline) {
                     Switch(
                         checked = isOn,
-                        onCheckedChange = { onToggle() },
+                        onCheckedChange = { if (canControl) onToggle() },
+                        enabled = canControl,
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
                             checkedTrackColor = AmberWarm,
@@ -194,7 +196,7 @@ fun DeviceCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Helligkeit",
+                        text = if (!canControl) "Helligkeit (Nur Lesezugriff)" else "Helligkeit",
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -210,9 +212,9 @@ fun DeviceCard(
 
                 Slider(
                     value = currentBrightness.toFloat(),
-                    onValueChange = { onBrightnessChange(it.toInt()) },
+                    onValueChange = { if (canControl) onBrightnessChange(it.toInt()) },
                     valueRange = 0f..100f,
-                    enabled = device.isOnline,
+                    enabled = device.isOnline && canControl,
                     colors = SliderDefaults.colors(
                         thumbColor = AmberWarm,
                         activeTrackColor = AmberWarm,

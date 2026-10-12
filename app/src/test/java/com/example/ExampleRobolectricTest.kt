@@ -153,4 +153,79 @@ class ExampleRobolectricTest {
         assertTrue(fullSuccess.isFullSuccess)
         assertFalse(fullSuccess.isPartialSuccess)
     }
+
+    @Test
+    fun `test WizPreset model and target types`() {
+        val groupPreset = com.example.data.model.WizPreset(
+            id = "preset_1",
+            name = "Gemütlicher Abend",
+            icon = "night",
+            targetType = "group",
+            targetId = "grp_100",
+            targetName = "Wohnzimmer Lampen",
+            state = true,
+            dimming = 40,
+            temperature = 2200
+        )
+
+        assertTrue(groupPreset.isGroupTarget)
+        assertFalse(groupPreset.isDeviceTarget)
+        assertEquals("Gemütlicher Abend", groupPreset.name)
+        assertEquals(40, groupPreset.dimming)
+        assertEquals(2200, groupPreset.temperature)
+
+        val devicePreset = com.example.data.model.WizPreset(
+            id = "preset_2",
+            name = "Leselampe An",
+            icon = "lightbulb",
+            targetType = "device",
+            targetId = "cc4085a3349e",
+            targetName = "Stehlampe",
+            state = true,
+            dimming = 90
+        )
+
+        assertTrue(devicePreset.isDeviceTarget)
+        assertFalse(devicePreset.isGroupTarget)
+    }
+
+    @Test
+    fun `test PreferencesManager hidden devices and preset caching`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefsManager = com.example.data.local.PreferencesManager(context)
+
+        // Test Hidden Devices
+        assertFalse(prefsManager.isDeviceHidden("dev_123"))
+        prefsManager.setDeviceHidden("dev_123", true)
+        assertTrue(prefsManager.isDeviceHidden("dev_123"))
+        assertTrue(prefsManager.getHiddenDeviceIds().contains("dev_123"))
+
+        prefsManager.setDeviceHidden("dev_123", false)
+        assertFalse(prefsManager.isDeviceHidden("dev_123"))
+
+        // Test Preset DTO Caching
+        val presetDto = com.example.data.model.WizPresetDto(
+            id = "p_1",
+            name = "Nachtmodus",
+            icon = "night",
+            targetType = "group",
+            targetId = "grp_1",
+            state = true,
+            dimming = 20
+        )
+        prefsManager.saveCachedPresets(listOf(presetDto))
+        val cached = prefsManager.getCachedPresets()
+        assertEquals(1, cached.size)
+        assertEquals("Nachtmodus", cached[0].name)
+        assertEquals("p_1", cached[0].id)
+    }
+
+    @Test
+    fun `test ApiConfig syncMode default and serialization`() {
+        val cfg = com.example.data.model.ApiConfig(syncMode = "MANUAL")
+        assertEquals("MANUAL", cfg.syncMode)
+
+        val autoCfg = com.example.data.model.ApiConfig()
+        assertEquals("AUTO", autoCfg.syncMode)
+    }
 }

@@ -59,6 +59,8 @@ fun GroupCard(
     onToggle: () -> Unit,
     onBrightnessChange: (Int) -> Unit,
     onEditClick: () -> Unit,
+    canControl: Boolean = true,
+    canManage: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val isOn = group.isTurnedOn
@@ -140,21 +142,24 @@ fun GroupCard(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = onEditClick,
-                        modifier = Modifier.testTag("edit_group_button_${group.id}")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Gruppe bearbeiten",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
+                    if (canManage) {
+                        IconButton(
+                            onClick = onEditClick,
+                            modifier = Modifier.testTag("edit_group_button_${group.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Gruppe bearbeiten",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
 
                     Switch(
                         checked = isOn,
-                        onCheckedChange = { onToggle() },
+                        onCheckedChange = { if (canControl) onToggle() },
+                        enabled = canControl,
                         modifier = Modifier.testTag("toggle_group_switch_${group.id}"),
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
@@ -174,7 +179,7 @@ fun GroupCard(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Helligkeit",
+                        text = if (!canControl) "Helligkeit (Nur Lesezugriff)" else "Helligkeit",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -186,8 +191,9 @@ fun GroupCard(
                 }
                 Slider(
                     value = localBrightness,
-                    onValueChange = { localBrightness = it },
-                    onValueChangeFinished = { onBrightnessChange(localBrightness.toInt()) },
+                    onValueChange = { if (canControl) localBrightness = it },
+                    onValueChangeFinished = { if (canControl) onBrightnessChange(localBrightness.toInt()) },
+                    enabled = canControl,
                     valueRange = 10f..100f,
                     modifier = Modifier
                         .fillMaxWidth()

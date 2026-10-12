@@ -83,6 +83,7 @@ fun SettingsScreen(
     var autoRefresh by remember(apiConfig.autoRefresh) { mutableStateOf(apiConfig.autoRefresh) }
     var refreshInterval by remember(apiConfig.refreshIntervalSeconds) { mutableIntStateOf(apiConfig.refreshIntervalSeconds) }
     var themeMode by remember(apiConfig.themeMode) { mutableStateOf(apiConfig.themeMode) }
+    var syncMode by remember(apiConfig.syncMode) { mutableStateOf(apiConfig.syncMode) }
     var showResetDialog by remember { mutableStateOf(false) }
 
     val isHttpUnencrypted = baseUrl.startsWith("http://", ignoreCase = true)
@@ -236,15 +237,22 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // API Token Input
+                    // API Token Display (Read-Only to enforce App Reset for credential changes)
                     OutlinedTextField(
                         value = apiToken,
-                        onValueChange = { apiToken = it },
+                        onValueChange = {},
+                        readOnly = true,
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("settings_api_token_input"),
-                        label = { Text("API-Token (Optional)") },
-                        placeholder = { Text("Bearer Token falls aktiviert") },
+                        label = { Text("API-Token (Geschützt)") },
+                        supportingText = {
+                            Text(
+                                text = "Das aktive Token kann aus Sicherheitsgründen nicht direkt überschrieben werden. Um ein anderes Token zu verwenden, nutze die Funktion „App zurücksetzen“.",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        },
                         singleLine = true,
                         visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
                         trailingIcon = {
@@ -257,9 +265,81 @@ fun SettingsScreen(
                         },
                         shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary
+                            focusedBorderColor = MaterialTheme.colorScheme.outline,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
                         )
                     )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Permissions Matrix Status Card
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Aktive Token-Berechtigungen",
+                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = if (apiConfig.tokenPermissions.isReadOnly) "Nur Lesezugriff" else "Aktiv",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (apiConfig.tokenPermissions.isReadOnly) WarningAmber else SuccessGreen
+                                    )
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            val perms = apiConfig.tokenPermissions
+                            val permItems = listOf(
+                                "Gerätesteuerung (devices.control)" to perms.canDevicesControl,
+                                "Geräte suchen (devices.discover)" to perms.canDevicesDiscover,
+                                "System Broadcast (system.broadcast)" to perms.canSystemBroadcast,
+                                "Gruppen verwalten (groups.manage)" to (perms.canGroupsCreate && perms.canGroupsUpdate),
+                                "Presets ausführen (presets.execute)" to perms.canPresetsExecute,
+                                "Presets verwalten (presets.manage)" to perms.canPresetsManage
+                            )
+
+                            permItems.chunked(2).forEach { rowPair ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 3.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    rowPair.forEach { (label, granted) ->
+                                        Row(
+                                            modifier = Modifier.weight(1f),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = if (granted) Icons.Default.CheckCircle else Icons.Default.Warning,
+                                                contentDescription = null,
+                                                tint = if (granted) SuccessGreen else MaterialTheme.colorScheme.outline,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = label,
+                                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                                color = if (granted) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(18.dp))
 
@@ -291,7 +371,8 @@ fun SettingsScreen(
                                     apiToken = apiToken.trim(),
                                     autoRefresh = autoRefresh,
                                     refreshIntervalSeconds = refreshInterval,
-                                    themeMode = themeMode
+                                    themeMode = themeMode,
+                                    syncMode = syncMode
                                 )
                                 onSaveConfig(updated)
                             },
@@ -423,9 +504,50 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                     Text(
-                        text = "Gleichzeitiger Abgleich von Räumen, Gruppen und Revisionsdaten",
+                        text = "Gleichzeitiger Abgleich von Räumen, Gruppen, Presets und Revisionsdaten",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Synchronisationsmodus",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = syncMode == "AUTO",
+                            onClick = {
+                                syncMode = "AUTO"
+                                onSaveConfig(apiConfig.copy(syncMode = "AUTO"))
+                            },
+                            label = { Text("Automatisch") },
+                            modifier = Modifier.testTag("sync_mode_chip_auto")
+                        )
+                        FilterChip(
+                            selected = syncMode == "MANUAL",
+                            onClick = {
+                                syncMode = "MANUAL"
+                                onSaveConfig(apiConfig.copy(syncMode = "MANUAL"))
+                            },
+                            label = { Text("Manuell") },
+                            modifier = Modifier.testTag("sync_mode_chip_manual")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = if (syncMode == "MANUAL") {
+                            "Manueller Modus: Keine automatische Intervall-Synchronisierung. Daten werden nur auf Knopfdruck abgeglichen."
+                        } else {
+                            "Automatischer Modus: Intervallbasierte Hintergrundaktualisierung ist aktiv."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (syncMode == "MANUAL") AmberWarm else MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -453,7 +575,7 @@ fun SettingsScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     Button(
                         onClick = onSyncData,
@@ -464,7 +586,20 @@ fun SettingsScreen(
                     ) {
                         Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Jetzt synchronisieren")
+                        Text("Jetzt synchronisieren (/api/sync)")
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedButton(
+                        onClick = onRefreshDiscovery,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("settings_fetch_server_state_button")
+                    ) {
+                        Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Aktuellen Gerätestatus abrufen")
                     }
                 }
             }
@@ -553,8 +688,8 @@ fun SettingsScreen(
     if (showResetDialog) {
         AlertDialog(
             onDismissRequest = { showResetDialog = false },
-            title = { Text("Konfiguration zurücksetzen?") },
-            text = { Text("Möchtest du alle gespeicherten API-Verbindungsdaten, Token und zwischengespeicherten Geräte wirklich löschen?") },
+            title = { Text("App vollständig zurücksetzen?") },
+            text = { Text("Möchtest du alle Verbindungsdaten, das Token und alle zwischengespeicherten Geräte, Räume, Gruppen und Presets wirklich löschen? Die App wird gesperrt und der Setup Wizard muss erneut durchgeführt werden.") },
             confirmButton = {
                 Button(
                     onClick = {
@@ -563,7 +698,7 @@ fun SettingsScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)
                 ) {
-                    Text("Löschen")
+                    Text("Jetzt zurücksetzen")
                 }
             },
             dismissButton = {

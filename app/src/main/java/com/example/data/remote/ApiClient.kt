@@ -3,16 +3,19 @@ package com.example.data.remote
 import com.example.data.model.ApiConfig
 import com.example.data.model.ApiResponse
 import com.example.data.model.CreateGroupRequest
+import com.example.data.model.CreatePresetRequest
 import com.example.data.model.DiscoveryData
 import com.example.data.model.GroupActionResult
 import com.example.data.model.GroupBrightnessRequest
 import com.example.data.model.GroupTemperatureRequest
 import com.example.data.model.SyncData
 import com.example.data.model.UpdateGroupRequest
+import com.example.data.model.UpdatePresetRequest
 import com.example.data.model.WizBulbDto
 import com.example.data.model.WizDeviceState
 import com.example.data.model.WizGroupDto
 import com.example.data.model.WizGroupStateDto
+import com.example.data.model.WizPresetDto
 import com.example.data.model.WizRoomDto
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
@@ -136,6 +139,58 @@ class ApiClient {
             } catch (inner: Exception) {
                 handleException(inner)
             }
+        }
+    }
+
+    suspend fun testConnectionWith(baseUrl: String, token: String): ApiResult<String> {
+        val normalized = normalizeBaseUrl(baseUrl)
+        val tempClientBuilder = OkHttpClient.Builder()
+            .connectTimeout(6, TimeUnit.SECONDS)
+            .readTimeout(8, TimeUnit.SECONDS)
+            .writeTimeout(8, TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val req = chain.request().newBuilder()
+                    .header("Accept", "application/json")
+                    .header("Content-Type", "application/json")
+                if (token.isNotBlank()) {
+                    req.header("Authorization", "Bearer ${token.trim()}")
+                }
+                chain.proceed(req.build())
+            }
+
+        return try {
+            val tempRetrofit = Retrofit.Builder()
+                .baseUrl(normalized)
+                .client(tempClientBuilder.build())
+                .addConverterFactory(MoshiConverterFactory.create(moshi))
+                .build()
+            val tempService = tempRetrofit.create(WizApiService::class.java)
+
+            // 1. Try health check
+            val healthRes = tempService.checkHealth()
+            if (!healthRes.isSuccessful) {
+                return handleHttpError(healthRes.code(), healthRes.errorBody()?.string())
+            }
+
+            // 2. Validate token against authenticated reading endpoint (getBulbs or getStates)
+            val authCheckRes = tempService.getBulbs()
+            if (authCheckRes.isSuccessful) {
+                ApiResult.Success("Verbindung und Authentifizierung erfolgreich!")
+            } else if (authCheckRes.code() == 401) {
+                ApiResult.Error(
+                    message = "Authentifizierung fehlgeschlagen: Das angegebene API-Token ist ungültig oder abgelaufen (HTTP 401).",
+                    httpStatus = 401
+                )
+            } else if (authCheckRes.code() == 403) {
+                // 403 means token is valid, but devices.read is not granted for this specific endpoint
+                ApiResult.Success("Verbindung erfolgreich. Hinweis: Token besitzt eingeschränkte Berechtigungen (HTTP 403 für Lampenliste).")
+            } else {
+                val bodyStr = healthRes.body()?.string() ?: ""
+                val statusText = parseHealthStatus(bodyStr)
+                ApiResult.Success("Verbindung erfolgreich ($statusText).")
+            }
+        } catch (e: Exception) {
+            handleException(e)
         }
     }
 
@@ -374,6 +429,115 @@ class ApiClient {
         }
     }
 
+    // =========================================================================
+    // Presets API
+    // =========================================================================
+
+    suspend fun fetchPresets(): ApiResult<List<WizPresetDto>> {
+        return try {
+            val response = getService().getPresets()
+            if (response.isSuccessful) {
+                val jsonStr = response.body()?.string() ?: ""
+                val presets = parsePresets(jsonStr)
+                ApiResult.Success(presets)
+            } else {
+                handleHttpError(response.code(), response.errorBody()?.string())
+            }
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
+    suspend fun createPreset(request: CreatePresetRequest): ApiResult<WizPresetDto> {
+        return try {
+            val response = getService().createPreset(request)
+            if (response.isSuccessful) {
+                val jsonStr = response.body()?.string() ?: ""
+                val created = parseSinglePreset(jsonStr)
+                if (created != null) {
+                    ApiResult.Success(created)
+                } else {
+                    ApiResult.Success(
+                        WizPresetDto(
+                            id = "preset_${System.currentTimeMillis()}",
+                            name = request.name,
+                            icon = request.icon,
+                            targetType = request.targetType,
+                            targetId = request.targetId,
+                            targetName = request.targetName,
+                            state = request.state,
+                            dimming = request.dimming,
+                            temperature = request.temperature,
+                            r = request.r,
+                            g = request.g,
+                            b = request.b
+                        )
+                    )
+                }
+            } else {
+                handleHttpError(response.code(), response.errorBody()?.string())
+            }
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
+    suspend fun updatePreset(id: String, request: UpdatePresetRequest): ApiResult<WizPresetDto> {
+        return try {
+            val response = getService().updatePreset(id, request)
+            if (response.isSuccessful) {
+                val jsonStr = response.body()?.string() ?: ""
+                val updated = parseSinglePreset(jsonStr)
+                if (updated != null) {
+                    ApiResult.Success(updated)
+                } else {
+                    ApiResult.Success(
+                        WizPresetDto(
+                            id = id,
+                            name = request.name ?: "",
+                            icon = request.icon,
+                            targetType = request.targetType ?: "group",
+                            targetId = request.targetId ?: "",
+                            targetName = request.targetName,
+                            state = request.state ?: true,
+                            dimming = request.dimming,
+                            temperature = request.temperature,
+                            r = request.r,
+                            g = request.g,
+                            b = request.b
+                        )
+                    )
+                }
+            } else {
+                handleHttpError(response.code(), response.errorBody()?.string())
+            }
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
+    suspend fun deletePreset(id: String): ApiResult<Unit> {
+        return try {
+            val response = getService().deletePreset(id)
+            if (response.isSuccessful) {
+                ApiResult.Success(Unit)
+            } else {
+                handleHttpError(response.code(), response.errorBody()?.string())
+            }
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
+    suspend fun applyPreset(id: String): ApiResult<GroupActionResult> {
+        return try {
+            val response = getService().applyPreset(id)
+            handleGroupActionResponse(response)
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
     private fun handleGroupActionResponse(response: Response<ResponseBody>): ApiResult<GroupActionResult> {
         val code = response.code()
         val bodyStr = if (response.isSuccessful || code == 207) {
@@ -485,31 +649,48 @@ class ApiClient {
     }
 
     private fun handleHttpError(code: Int, errorBody: String?): ApiResult.Error {
-        val parsedApiMessage = try {
+        var parsedCode: String? = null
+        var parsedApiMessage: String? = null
+
+        try {
             if (!errorBody.isNullOrBlank()) {
                 val obj = JSONObject(errorBody)
                 if (obj.has("error")) {
-                    val err = obj.optJSONObject("error")
-                    err?.optString("message") ?: obj.optString("error")
+                    val errObj = obj.optJSONObject("error")
+                    if (errObj != null) {
+                        parsedApiMessage = errObj.optString("message").takeIf { it.isNotBlank() }
+                        parsedCode = errObj.optString("code").takeIf { it.isNotBlank() }
+                    } else {
+                        parsedApiMessage = obj.optString("error").takeIf { it.isNotBlank() }
+                    }
                 } else if (obj.has("message")) {
-                    obj.optString("message")
-                } else null
-            } else null
+                    parsedApiMessage = obj.optString("message").takeIf { it.isNotBlank() }
+                }
+                if (parsedCode == null && obj.has("code")) {
+                    parsedCode = obj.optString("code").takeIf { it.isNotBlank() }
+                }
+            }
         } catch (_: Exception) {
-            null
+            // JSON parsing fallback
         }
 
         val message = when (code) {
             400 -> parsedApiMessage ?: "Ungültige Anfrage: Bitte Eingaben und Gruppenzuordnungen prüfen (HTTP 400)."
-            401 -> "Authentifizierung fehlgeschlagen: Ungültiges oder abgelaufenes API-Token (HTTP 401)."
-            403 -> "Zugriff verweigert: Fehlende Berechtigung für diese Anfrage (HTTP 403)."
-            404 -> "API-Endpunkt oder Ressource nicht gefunden: Bitte URL und ID prüfen (HTTP 404)."
+            401 -> {
+                val detail = parsedApiMessage?.let { " ($it)" } ?: ""
+                "Authentifizierung fehlgeschlagen: Ungültiges oder abgelaufenes API-Token$detail (HTTP 401)."
+            }
+            403 -> {
+                val detail = parsedApiMessage?.let { " ($it)" } ?: ""
+                "Zugriff verweigert: Fehlende Berechtigung für diese Aktion$detail (HTTP 403)."
+            }
+            404 -> parsedApiMessage ?: "API-Endpunkt oder Ressource nicht gefunden: Bitte URL und ID prüfen (HTTP 404)."
             502 -> "Geräte-Timeout: Das WiZ-Gerät hat nicht rechtzeitig geantwortet (HTTP 502 Bad Gateway)."
             504 -> "Gateway-Timeout: Zeitüberschreitung bei der Kommunikation mit dem WiZ-Gerät (HTTP 504)."
-            in 500..599 -> "Serverfehler: Die REST-API meldet einen internen Fehler (HTTP $code)."
+            in 500..599 -> parsedApiMessage ?: "Serverfehler: Die REST-API meldet einen internen Fehler (HTTP $code)."
             else -> parsedApiMessage ?: "HTTP-Anfrage fehlgeschlagen mit Status $code."
         }
-        return ApiResult.Error(message = message, httpStatus = code)
+        return ApiResult.Error(message = message, code = parsedCode, httpStatus = code)
     }
 
     private fun handleException(e: Exception): ApiResult.Error {
@@ -663,6 +844,72 @@ class ApiClient {
             deviceType = deviceType,
             deviceMacs = members,
             state = stateDto
+        )
+    }
+
+    private fun parsePresets(jsonStr: String): List<WizPresetDto> {
+        val list = mutableListOf<WizPresetDto>()
+        try {
+            val trimmed = jsonStr.trim()
+            val root = if (trimmed.startsWith("{")) JSONObject(trimmed) else null
+            val arr = (if (root != null) {
+                if (root.has("data")) {
+                    val d = root.opt("data")
+                    if (d is JSONArray) d else if (d is JSONObject && d.has("presets")) d.optJSONArray("presets") else null
+                } else if (root.has("presets")) {
+                    root.optJSONArray("presets")
+                } else null
+            } else if (trimmed.startsWith("[")) {
+                JSONArray(trimmed)
+            } else null) ?: return list
+
+            for (i in 0 until arr.length()) {
+                val item = arr.optJSONObject(i) ?: continue
+                val dto = jsonToPresetDto(item)
+                if (dto != null) list.add(dto)
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
+    private fun parseSinglePreset(jsonStr: String): WizPresetDto? {
+        return try {
+            val root = JSONObject(jsonStr)
+            val obj = if (root.has("data")) root.optJSONObject("data") ?: root else root
+            jsonToPresetDto(obj)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun jsonToPresetDto(obj: JSONObject): WizPresetDto? {
+        val id = obj.optString("id", obj.optString("_id", ""))
+        if (id.isBlank()) return null
+        val name = obj.optString("name", "Preset")
+        val icon = if (obj.has("icon")) obj.optString("icon", "lightbulb") else "lightbulb"
+        val targetType = obj.optString("targetType", "group")
+        val targetId = obj.optString("targetId", "")
+        val targetName = if (obj.has("targetName")) obj.optString("targetName", null) else null
+        val state = obj.optBoolean("state", true)
+        val dimming = if (obj.has("dimming")) obj.optInt("dimming", 100) else 100
+        val temp = if (obj.has("temperature")) obj.optInt("temperature") else null
+        val r = if (obj.has("r")) obj.optInt("r") else null
+        val g = if (obj.has("g")) obj.optInt("g") else null
+        val b = if (obj.has("b")) obj.optInt("b") else null
+
+        return WizPresetDto(
+            id = id,
+            name = name,
+            icon = icon,
+            targetType = targetType,
+            targetId = targetId,
+            targetName = targetName,
+            state = state,
+            dimming = dimming,
+            temperature = temp,
+            r = r,
+            g = g,
+            b = b
         )
     }
 }

@@ -47,6 +47,7 @@ fun RoomCard(
     room: WizRoom,
     onToggleRoom: (Boolean) -> Unit,
     onClick: () -> Unit,
+    canControl: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val hasActive = room.hasActiveLights
@@ -106,8 +107,8 @@ fun RoomCard(
 
                 Switch(
                     checked = hasActive,
-                    onCheckedChange = { onToggleRoom(it) },
-                    enabled = room.onlineCount > 0,
+                    onCheckedChange = { if (canControl) onToggleRoom(it) },
+                    enabled = room.onlineCount > 0 && canControl,
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.White,
                         checkedTrackColor = AmberWarm,

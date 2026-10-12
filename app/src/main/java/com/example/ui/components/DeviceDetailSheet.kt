@@ -39,6 +39,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -85,10 +86,13 @@ val PRESET_COLORS = listOf(
 fun DeviceDetailSheet(
     device: WizDevice,
     slidingBrightness: Int?,
+    isHidden: Boolean = false,
     onDismiss: () -> Unit,
     onToggle: () -> Unit,
     onBrightnessChange: (Int) -> Unit,
-    onColorChange: (Int, Int, Int) -> Unit
+    onColorChange: (Int, Int, Int) -> Unit,
+    onToggleHidden: () -> Unit = {},
+    canControl: Boolean = true
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showTechDetails by remember { mutableStateOf(false) }
@@ -157,7 +161,7 @@ fun DeviceDetailSheet(
                         color = if (isOn) AmberWarm else MaterialTheme.colorScheme.outline,
                         shape = CircleShape
                     )
-                    .clickable(enabled = device.isOnline, onClick = onToggle)
+                    .clickable(enabled = device.isOnline && canControl, onClick = onToggle)
                     .testTag("detail_sheet_power_toggle"),
                 contentAlignment = Alignment.Center
             ) {
@@ -174,6 +178,7 @@ fun DeviceDetailSheet(
             Text(
                 text = when {
                     !device.isOnline -> "Offline (nicht erreichbar)"
+                    !canControl -> if (isOn) "Eingeschaltet (Nur Lesezugriff)" else "Ausgeschaltet (Nur Lesezugriff)"
                     isOn -> "Eingeschaltet"
                     else -> "Ausgeschaltet"
                 },
@@ -203,7 +208,7 @@ fun DeviceDetailSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Helligkeit",
+                                text = if (!canControl) "Helligkeit (Nur Lesezugriff)" else "Helligkeit",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
                             )
                             Text(
@@ -219,7 +224,8 @@ fun DeviceDetailSheet(
 
                         Slider(
                             value = currentBrightness.toFloat(),
-                            onValueChange = { onBrightnessChange(it.toInt()) },
+                            onValueChange = { if (canControl) onBrightnessChange(it.toInt()) },
+                            enabled = canControl,
                             valueRange = 0f..100f,
                             colors = SliderDefaults.colors(
                                 thumbColor = AmberWarm,
@@ -243,7 +249,7 @@ fun DeviceDetailSheet(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            text = "Lichtfarbe & Farbstimmung",
+                            text = if (!canControl) "Lichtfarbe (Nur Lesezugriff)" else "Lichtfarbe & Farbstimmung",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
                         )
 
@@ -260,7 +266,7 @@ fun DeviceDetailSheet(
                                         .clip(CircleShape)
                                         .background(preset.displayColor)
                                         .border(1.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), CircleShape)
-                                        .clickable {
+                                        .clickable(enabled = canControl) {
                                             onColorChange(preset.r, preset.g, preset.b)
                                         }
                                         .testTag("color_preset_${preset.name}")
@@ -271,7 +277,43 @@ fun DeviceDetailSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Device Visibility Setting Card
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "In Geräteübersicht ausblenden",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Bleibt in Räumen und Gruppen weiterhin sichtbar und steuerbar.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Switch(
+                        checked = isHidden,
+                        onCheckedChange = { onToggleHidden() },
+                        modifier = Modifier.testTag("device_visibility_switch")
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Collapsible Technical Info Section
             Surface(

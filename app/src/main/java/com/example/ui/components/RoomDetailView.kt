@@ -56,6 +56,9 @@ fun RoomDetailView(
     onGroupBrightnessChange: (WizGroup, Int) -> Unit,
     onEditGroup: (WizGroup) -> Unit,
     onCreateGroupClick: () -> Unit,
+    canControlDevices: Boolean = true,
+    canCreateGroups: Boolean = true,
+    canManageGroups: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     BackHandler { onBack() }
@@ -127,6 +130,7 @@ fun RoomDetailView(
                         ) {
                             Button(
                                 onClick = { onToggleRoom(true) },
+                                enabled = canControlDevices,
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("room_turn_all_on_button"),
@@ -142,6 +146,7 @@ fun RoomDetailView(
 
                             FilledTonalButton(
                                 onClick = { onToggleRoom(false) },
+                                enabled = canControlDevices,
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("room_turn_all_off_button")
@@ -158,7 +163,7 @@ fun RoomDetailView(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "Gemeinsame Helligkeit",
+                                    text = if (!canControlDevices) "Gemeinsame Helligkeit (Nur Lesezugriff)" else "Gemeinsame Helligkeit",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -173,7 +178,8 @@ fun RoomDetailView(
 
                             Slider(
                                 value = room.averageBrightness.toFloat(),
-                                onValueChange = { onRoomBrightnessChange(it.toInt()) },
+                                onValueChange = { if (canControlDevices) onRoomBrightnessChange(it.toInt()) },
+                                enabled = canControlDevices,
                                 valueRange = 0f..100f,
                                 colors = SliderDefaults.colors(
                                     thumbColor = AmberWarm,
@@ -198,13 +204,15 @@ fun RoomDetailView(
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
 
-                    OutlinedButton(
-                        onClick = onCreateGroupClick,
-                        modifier = Modifier.testTag("create_room_group_button")
-                    ) {
-                        Icon(imageVector = Icons.Default.Add, contentDescription = null)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Gruppe")
+                    if (canCreateGroups) {
+                        OutlinedButton(
+                            onClick = onCreateGroupClick,
+                            modifier = Modifier.testTag("create_room_group_button")
+                        ) {
+                            Icon(imageVector = Icons.Default.Add, contentDescription = null)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Gruppe")
+                        }
                     }
                 }
             }
@@ -216,7 +224,9 @@ fun RoomDetailView(
                         roomName = room.name,
                         onToggle = { onToggleGroup(group) },
                         onBrightnessChange = { onGroupBrightnessChange(group, it) },
-                        onEditClick = { onEditGroup(group) }
+                        onEditClick = { onEditGroup(group) },
+                        canControl = canControlDevices,
+                        canManage = canManageGroups
                     )
                 }
             }
@@ -236,7 +246,8 @@ fun RoomDetailView(
                     slidingBrightness = slidingBrightness[dev.mac.ifBlank { dev.ip }],
                     onToggle = { onToggleDevice(dev) },
                     onBrightnessChange = { onDeviceBrightnessChange(dev, it) },
-                    onClick = { onDeviceClick(dev) }
+                    onClick = { onDeviceClick(dev) },
+                    canControl = canControlDevices
                 )
             }
         }

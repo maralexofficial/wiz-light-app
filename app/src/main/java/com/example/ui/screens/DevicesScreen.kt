@@ -48,7 +48,8 @@ val DEVICE_FILTERS = listOf(
     FilterOption("INACTIVE", "Aus"),
     FilterOption("LIGHTS", "Lampen"),
     FilterOption("PLUGS", "Steckdosen"),
-    FilterOption("OFFLINE", "Offline")
+    FilterOption("OFFLINE", "Offline"),
+    FilterOption("HIDDEN", "Ausgeblendet")
 )
 
 @Composable
@@ -62,6 +63,7 @@ fun DevicesScreen(
     onToggleDevice: (WizDevice) -> Unit,
     onDeviceBrightnessChange: (WizDevice, Int) -> Unit,
     onDeviceClick: (WizDevice) -> Unit,
+    canControl: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -186,7 +188,8 @@ fun DevicesScreen(
                         slidingBrightness = slidingBrightness[dev.mac.ifBlank { dev.ip }],
                         onToggle = { onToggleDevice(dev) },
                         onBrightnessChange = { onDeviceBrightnessChange(dev, it) },
-                        onClick = { onDeviceClick(dev) }
+                        onClick = { onDeviceClick(dev) },
+                        canControl = canControl
                     )
                 }
             }

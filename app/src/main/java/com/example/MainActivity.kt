@@ -38,6 +38,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.AppTab
 import com.example.ui.MainViewModel
 import com.example.ui.components.CreateGroupDialog
+import com.example.ui.components.CreatePresetDialog
 import com.example.ui.components.DeviceDetailSheet
 import com.example.ui.components.EditGroupDialog
 import com.example.ui.components.RoomDetailView
@@ -68,7 +69,10 @@ fun WizAppContent(viewModel: MainViewModel) {
     val devices by viewModel.devices.collectAsStateWithLifecycle()
     val rooms by viewModel.rooms.collectAsStateWithLifecycle()
     val groups by viewModel.groups.collectAsStateWithLifecycle()
+    val presets by viewModel.presets.collectAsStateWithLifecycle()
     val apiConfig by viewModel.apiConfig.collectAsStateWithLifecycle()
+    val isConfigured by viewModel.isConfigured.collectAsStateWithLifecycle()
+    val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val isDiscovering by viewModel.isDiscovering.collectAsStateWithLifecycle()
     val selectedTab by viewModel.selectedTab.collectAsStateWithLifecycle()
     val selectedRoomId by viewModel.selectedRoomId.collectAsStateWithLifecycle()
@@ -76,6 +80,8 @@ fun WizAppContent(viewModel: MainViewModel) {
     val showCreateGroupDialog by viewModel.showCreateGroupDialog.collectAsStateWithLifecycle()
     val createGroupPreselectedRoomId by viewModel.createGroupPreselectedRoomId.collectAsStateWithLifecycle()
     val editingGroup by viewModel.editingGroup.collectAsStateWithLifecycle()
+    val showCreatePresetDialog by viewModel.showCreatePresetDialog.collectAsStateWithLifecycle()
+    val hiddenDeviceIds by viewModel.hiddenDeviceIds.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val deviceFilter by viewModel.deviceFilter.collectAsStateWithLifecycle()
     val filteredDevices by viewModel.filteredDevices.collectAsStateWithLifecycle()
@@ -90,6 +96,15 @@ fun WizAppContent(viewModel: MainViewModel) {
             snackbarHostState.showSnackbar(msg)
             viewModel.clearFeedback()
         }
+    }
+
+    // MANDATORY GATE: If app is not configured, strictly display SetupWizardScreen only
+    if (!isConfigured) {
+        com.example.ui.screens.SetupWizardScreen(
+            onTestConnection = { url, token -> viewModel.testConnectionWith(url, token) },
+            onCompleteSetup = { url, token -> viewModel.completeSetup(url, token) }
+        )
+        return
     }
 
     val selectedRoom = rooms.firstOrNull { it.id == selectedRoomId }
@@ -233,7 +248,10 @@ fun WizAppContent(viewModel: MainViewModel) {
                         onToggleGroup = { viewModel.toggleGroup(it) },
                         onGroupBrightnessChange = { grp, b -> viewModel.onGroupBrightnessChange(grp, b) },
                         onEditGroup = { viewModel.openEditGroupDialog(it) },
-                        onCreateGroupClick = { viewModel.openCreateGroupDialog(selectedRoom.id) }
+                        onCreateGroupClick = { viewModel.openCreateGroupDialog(selectedRoom.id) },
+                        canControlDevices = permissions.canDevicesControl,
+                        canCreateGroups = permissions.canGroupsCreate,
+                        canManageGroups = permissions.canGroupsUpdate
                     )
                 } else {
                     when (selectedTab) {
@@ -241,6 +259,7 @@ fun WizAppContent(viewModel: MainViewModel) {
                             devices = devices,
                             rooms = rooms,
                             groups = groups,
+                            presets = presets,
                             slidingBrightness = slidingBrightness,
                             onBroadcastAll = { viewModel.broadcastAll(it) },
                             onRefreshDiscovery = { viewModel.refreshDevices(showToast = true) },
@@ -252,14 +271,24 @@ fun WizAppContent(viewModel: MainViewModel) {
                             onToggleGroup = { viewModel.toggleGroup(it) },
                             onGroupBrightnessChange = { grp, b -> viewModel.onGroupBrightnessChange(grp, b) },
                             onEditGroup = { viewModel.openEditGroupDialog(it) },
-                            onNavigateToSettings = { viewModel.selectTab(AppTab.SETTINGS) }
+                            onApplyPreset = { viewModel.applyPreset(it) },
+                            onCreatePresetClick = { viewModel.openCreatePresetDialog() },
+                            onDeletePreset = { viewModel.deletePreset(it) },
+                            onNavigateToSettings = { viewModel.selectTab(AppTab.SETTINGS) },
+                            permissions = permissions
                         )
 
                         AppTab.ROOMS -> RoomsScreen(
                             rooms = rooms,
+                            groups = groups,
                             onToggleRoom = { r, on -> viewModel.toggleRoom(r, on) },
                             onRoomClick = { viewModel.selectRoom(it.id) },
-                            onRefreshDiscovery = { viewModel.refreshDevices(showToast = true) }
+                            onToggleGroup = { viewModel.toggleGroup(it) },
+                            onGroupBrightnessChange = { grp, b -> viewModel.onGroupBrightnessChange(grp, b) },
+                            onEditGroup = { viewModel.openEditGroupDialog(it) },
+                            onCreateGroupClick = { viewModel.openCreateGroupDialog() },
+                            onRefreshDiscovery = { viewModel.refreshDevices(showToast = true) },
+                            permissions = permissions
                         )
 
                         AppTab.DEVICES -> DevicesScreen(
@@ -271,7 +300,8 @@ fun WizAppContent(viewModel: MainViewModel) {
                             onFilterChange = { viewModel.setDeviceFilter(it) },
                             onToggleDevice = { viewModel.toggleDevice(it) },
                             onDeviceBrightnessChange = { dev, b -> viewModel.onBrightnessChange(dev, b) },
-                            onDeviceClick = { viewModel.selectDevice(it) }
+                            onDeviceClick = { viewModel.selectDevice(it) },
+                            canControl = permissions.canDevicesControl
                         )
 
                         AppTab.SETTINGS -> SettingsScreen(
@@ -282,7 +312,7 @@ fun WizAppContent(viewModel: MainViewModel) {
                             onSaveConfig = { viewModel.saveConfig(it) },
                             onRefreshDiscovery = { viewModel.refreshDevices(showToast = true) },
                             onSyncData = { viewModel.syncData() },
-                            onResetConfig = { viewModel.clearAllData() }
+                            onResetConfig = { viewModel.resetApp() }
                         )
                     }
                 }
@@ -294,10 +324,13 @@ fun WizAppContent(viewModel: MainViewModel) {
             DeviceDetailSheet(
                 device = dev,
                 slidingBrightness = slidingBrightness[dev.mac.ifBlank { dev.ip }],
+                isHidden = hiddenDeviceIds.contains(dev.mac.ifBlank { dev.ip }),
                 onDismiss = { viewModel.selectDevice(null) },
                 onToggle = { viewModel.toggleDevice(dev) },
                 onBrightnessChange = { viewModel.onBrightnessChange(dev, it) },
-                onColorChange = { r, g, b -> viewModel.setDeviceColor(dev, r, g, b) }
+                onColorChange = { r, g, b -> viewModel.setDeviceColor(dev, r, g, b) },
+                onToggleHidden = { viewModel.toggleDeviceHidden(dev) },
+                canControl = permissions.canDevicesControl
             )
         }
 
@@ -326,6 +359,19 @@ fun WizAppContent(viewModel: MainViewModel) {
                 },
                 onDelete = {
                     viewModel.deleteGroup(grp)
+                }
+            )
+        }
+
+        // Create Preset Dialog
+        if (showCreatePresetDialog) {
+            CreatePresetDialog(
+                groups = groups,
+                devices = devices,
+                rooms = rooms,
+                onDismiss = { viewModel.closeCreatePresetDialog() },
+                onCreate = { name, icon, type, targetId, targetName, state, dimming, temp, r, g, b ->
+                    viewModel.createPreset(name, icon, type, targetId, targetName, state, dimming, temp, r, g, b)
                 }
             )
         }

@@ -246,7 +246,8 @@ fun EditGroupDialog(
     roomDevices: List<WizDevice>,
     onDismiss: () -> Unit,
     onSave: (name: String, deviceMacs: List<String>) -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    canDelete: Boolean = true
 ) {
     var name by remember(group.name) { mutableStateOf(group.name) }
     val selectedMacs = remember(group.deviceMacs) { mutableStateListOf(*group.deviceMacs.toTypedArray()) }
@@ -292,13 +293,15 @@ fun EditGroupDialog(
                     text = "Gruppe bearbeiten",
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                 )
-                TextButton(
-                    onClick = { showDeleteConfirm = true },
-                    colors = ButtonDefaults.textButtonColors(contentColor = ErrorRed)
-                ) {
-                    Icon(imageVector = Icons.Default.Delete, contentDescription = "Löschen")
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Löschen")
+                if (canDelete) {
+                    TextButton(
+                        onClick = { showDeleteConfirm = true },
+                        colors = ButtonDefaults.textButtonColors(contentColor = ErrorRed)
+                    ) {
+                        Icon(imageVector = Icons.Default.Delete, contentDescription = "Löschen")
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Löschen")
+                    }
                 }
             }
         },

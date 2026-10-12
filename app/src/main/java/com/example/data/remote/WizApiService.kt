@@ -4,13 +4,16 @@ import com.example.data.model.ApiResponse
 import com.example.data.model.BrightnessRequest
 import com.example.data.model.ColorRequest
 import com.example.data.model.CreateGroupRequest
+import com.example.data.model.CreatePresetRequest
 import com.example.data.model.DiscoveryData
 import com.example.data.model.GroupBrightnessRequest
 import com.example.data.model.GroupTemperatureRequest
 import com.example.data.model.IpRequest
 import com.example.data.model.SyncData
 import com.example.data.model.UpdateGroupRequest
+import com.example.data.model.UpdatePresetRequest
 import com.example.data.model.WizGroupDto
+import com.example.data.model.WizPresetDto
 import com.example.data.model.WizRoomDto
 import okhttp3.ResponseBody
 import retrofit2.Response
@@ -101,4 +104,23 @@ interface WizApiService {
     // --- Synchronization ---
     @GET("api/sync")
     suspend fun getSync(): Response<ResponseBody>
+
+    // --- Presets Endpoints ---
+    @GET("api/presets")
+    suspend fun getPresets(): Response<ResponseBody>
+
+    @GET("api/presets/{id}")
+    suspend fun getPreset(@Path("id") id: String): Response<ResponseBody>
+
+    @POST("api/presets")
+    suspend fun createPreset(@Body body: CreatePresetRequest): Response<ResponseBody>
+
+    @PATCH("api/presets/{id}")
+    suspend fun updatePreset(@Path("id") id: String, @Body body: UpdatePresetRequest): Response<ResponseBody>
+
+    @DELETE("api/presets/{id}")
+    suspend fun deletePreset(@Path("id") id: String): Response<ResponseBody>
+
+    @POST("api/presets/{id}/apply")
+    suspend fun applyPreset(@Path("id") id: String): Response<ResponseBody>
 }

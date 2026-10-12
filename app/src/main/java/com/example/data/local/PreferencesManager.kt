@@ -19,10 +19,26 @@ class PreferencesManager(context: Context) {
     private val groupListType = Types.newParameterizedType(List::class.java, WizGroupDto::class.java)
     private val groupListAdapter = moshi.adapter<List<WizGroupDto>>(groupListType)
 
+    private val permissionsAdapter = moshi.adapter(com.example.data.model.TokenPermissions::class.java)
+
     fun getApiConfig(): ApiConfig {
+        val permissionsJson = prefs.getString(KEY_PERMISSIONS, null)
+        val tokenPermissions = if (permissionsJson != null) {
+            try {
+                permissionsAdapter.fromJson(permissionsJson) ?: com.example.data.model.TokenPermissions.ALL_GRANTED
+            } catch (_: Exception) {
+                com.example.data.model.TokenPermissions.ALL_GRANTED
+            }
+        } else {
+            com.example.data.model.TokenPermissions.ALL_GRANTED
+        }
+
+        val isConfigured = prefs.getBoolean(KEY_IS_CONFIGURED, false)
+
         return ApiConfig(
             baseUrl = prefs.getString(KEY_BASE_URL, "http://192.168.1.100:3000") ?: "http://192.168.1.100:3000",
             apiToken = prefs.getString(KEY_API_TOKEN, "") ?: "",
+            isConfigured = isConfigured,
             autoRefresh = prefs.getBoolean(KEY_AUTO_REFRESH, false),
             refreshIntervalSeconds = prefs.getInt(KEY_REFRESH_INTERVAL, 30),
             themeMode = prefs.getString(KEY_THEME_MODE, "system") ?: "system",
@@ -33,7 +49,8 @@ class PreferencesManager(context: Context) {
             syncMode = prefs.getString(KEY_SYNC_MODE, "AUTO") ?: "AUTO",
             lastRevision = if (prefs.contains(KEY_LAST_REVISION)) prefs.getLong(KEY_LAST_REVISION, 0L) else null,
             serverUpdatedAt = prefs.getString(KEY_SERVER_UPDATED_AT, null),
-            lastSyncError = prefs.getString(KEY_LAST_SYNC_ERROR, null)
+            lastSyncError = prefs.getString(KEY_LAST_SYNC_ERROR, null),
+            tokenPermissions = tokenPermissions
         )
     }
 
@@ -41,10 +58,14 @@ class PreferencesManager(context: Context) {
         prefs.edit().apply {
             putString(KEY_BASE_URL, config.baseUrl.trim())
             putString(KEY_API_TOKEN, config.apiToken.trim())
+            putBoolean(KEY_IS_CONFIGURED, config.isConfigured)
             putBoolean(KEY_AUTO_REFRESH, config.autoRefresh)
             putInt(KEY_REFRESH_INTERVAL, config.refreshIntervalSeconds)
             putString(KEY_THEME_MODE, config.themeMode)
             putString(KEY_SYNC_MODE, config.syncMode)
+            try {
+                putString(KEY_PERMISSIONS, permissionsAdapter.toJson(config.tokenPermissions))
+            } catch (_: Exception) {}
             if (config.lastTestStatus != null) {
                 putBoolean(KEY_LAST_TEST_STATUS, config.lastTestStatus)
             }
@@ -92,6 +113,9 @@ class PreferencesManager(context: Context) {
         }
     }
 
+    private val presetListType = Types.newParameterizedType(List::class.java, com.example.data.model.WizPresetDto::class.java)
+    private val presetListAdapter = moshi.adapter<List<com.example.data.model.WizPresetDto>>(presetListType)
+
     fun saveCachedGroups(groups: List<WizGroupDto>) {
         try {
             val json = groupListAdapter.toJson(groups)
@@ -106,6 +130,40 @@ class PreferencesManager(context: Context) {
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    fun saveCachedPresets(presets: List<com.example.data.model.WizPresetDto>) {
+        try {
+            val json = presetListAdapter.toJson(presets)
+            prefs.edit().putString(KEY_CACHED_PRESETS, json).apply()
+        } catch (_: Exception) {}
+    }
+
+    fun getCachedPresets(): List<com.example.data.model.WizPresetDto> {
+        val json = prefs.getString(KEY_CACHED_PRESETS, null) ?: return emptyList()
+        return try {
+            presetListAdapter.fromJson(json) ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun getHiddenDeviceIds(): Set<String> {
+        return prefs.getStringSet(KEY_HIDDEN_DEVICES, emptySet()) ?: emptySet()
+    }
+
+    fun setDeviceHidden(deviceId: String, hidden: Boolean) {
+        val current = getHiddenDeviceIds().toMutableSet()
+        if (hidden) {
+            current.add(deviceId)
+        } else {
+            current.remove(deviceId)
+        }
+        prefs.edit().putStringSet(KEY_HIDDEN_DEVICES, current).apply()
+    }
+
+    fun isDeviceHidden(deviceId: String): Boolean {
+        return getHiddenDeviceIds().contains(deviceId)
     }
 
     fun clearAll() {
@@ -128,5 +186,9 @@ class PreferencesManager(context: Context) {
         private const val KEY_SERVER_UPDATED_AT = "server_updated_at"
         private const val KEY_LAST_SYNC_ERROR = "last_sync_error"
         private const val KEY_CACHED_GROUPS = "cached_groups"
+        private const val KEY_CACHED_PRESETS = "cached_presets"
+        private const val KEY_HIDDEN_DEVICES = "hidden_devices"
+        private const val KEY_PERMISSIONS = "token_permissions"
+        private const val KEY_IS_CONFIGURED = "is_configured"
     }
 }

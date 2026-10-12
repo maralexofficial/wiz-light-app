@@ -3,15 +3,19 @@ package com.example.data.repository
 import com.example.data.local.PreferencesManager
 import com.example.data.model.ApiConfig
 import com.example.data.model.CreateGroupRequest
+import com.example.data.model.CreatePresetRequest
 import com.example.data.model.GroupActionResult
 import com.example.data.model.SyncData
 import com.example.data.model.UpdateGroupRequest
+import com.example.data.model.UpdatePresetRequest
 import com.example.data.model.WizBulbDto
 import com.example.data.model.WizDevice
 import com.example.data.model.WizDeviceState
 import com.example.data.model.WizGroup
 import com.example.data.model.WizGroupDto
 import com.example.data.model.WizGroupStateDto
+import com.example.data.model.WizPreset
+import com.example.data.model.WizPresetDto
 import com.example.data.model.WizRoom
 import com.example.data.remote.ApiClient
 import com.example.data.remote.ApiResult
@@ -44,6 +48,9 @@ class WizRepository(
     private val _groups = MutableStateFlow<List<WizGroup>>(emptyList())
     val groups: StateFlow<List<WizGroup>> = _groups.asStateFlow()
 
+    private val _presets = MutableStateFlow<List<WizPreset>>(emptyList())
+    val presets: StateFlow<List<WizPreset>> = _presets.asStateFlow()
+
     private val _apiConfig = MutableStateFlow(preferencesManager.getApiConfig())
     val apiConfig: StateFlow<ApiConfig> = _apiConfig.asStateFlow()
 
@@ -69,12 +76,40 @@ class WizRepository(
         if (cachedGroupDtos.isNotEmpty()) {
             _groups.value = cachedGroupDtos.map { groupDtoToDomain(it) }
         }
+        val cachedPresetDtos = preferencesManager.getCachedPresets()
+        if (cachedPresetDtos.isNotEmpty()) {
+            _presets.value = cachedPresetDtos.map { presetDtoToDomain(it) }
+        }
     }
 
     fun updateConfig(newConfig: ApiConfig) {
         _apiConfig.value = newConfig
         preferencesManager.saveApiConfig(newConfig)
         apiClient.updateConfig(newConfig)
+    }
+
+    fun updateTokenPermissions(permissions: com.example.data.model.TokenPermissions) {
+        val updated = _apiConfig.value.copy(tokenPermissions = permissions)
+        updateConfig(updated)
+    }
+
+    private fun handle403Permission(permissionKey: String) {
+        val cur = _apiConfig.value.tokenPermissions
+        val updated = when (permissionKey) {
+            "system.broadcast" -> cur.copy(canSystemBroadcast = false)
+            "devices.control" -> cur.copy(canDevicesControl = false)
+            "devices.discover" -> cur.copy(canDevicesDiscover = false)
+            "groups.create" -> cur.copy(canGroupsCreate = false)
+            "groups.update" -> cur.copy(canGroupsUpdate = false)
+            "groups.delete" -> cur.copy(canGroupsDelete = false)
+            "presets.read" -> cur.copy(canPresetsRead = false)
+            "presets.execute" -> cur.copy(canPresetsExecute = false)
+            "presets.manage" -> cur.copy(canPresetsManage = false)
+            else -> cur
+        }
+        if (updated != cur) {
+            updateTokenPermissions(updated)
+        }
     }
 
     suspend fun testConnection(): ApiResult<String> {
@@ -98,6 +133,10 @@ class WizRepository(
         }
         updateConfig(updated)
         return result
+    }
+
+    suspend fun testConnectionWith(baseUrl: String, token: String): ApiResult<String> {
+        return apiClient.testConnectionWith(baseUrl, token)
     }
 
     suspend fun discoverDevices(force: Boolean = false): ApiResult<Int> {
@@ -483,6 +522,165 @@ class WizRepository(
         }
     }
 
+    private fun presetDtoToDomain(dto: WizPresetDto): WizPreset {
+        return WizPreset(
+            id = dto.id,
+            name = dto.name.ifBlank { "Preset" },
+            icon = dto.icon ?: "lightbulb",
+            targetType = dto.targetType,
+            targetId = dto.targetId,
+            targetName = dto.targetName ?: "",
+            state = dto.state,
+            dimming = dto.dimming ?: 100,
+            temperature = dto.temperature,
+            r = dto.r,
+            g = dto.g,
+            b = dto.b,
+            createdAt = dto.createdAt ?: System.currentTimeMillis(),
+            updatedAt = dto.updatedAt ?: System.currentTimeMillis()
+        )
+    }
+
+    private fun presetDomainToDto(p: WizPreset): WizPresetDto {
+        return WizPresetDto(
+            id = p.id,
+            name = p.name,
+            icon = p.icon,
+            targetType = p.targetType,
+            targetId = p.targetId,
+            targetName = p.targetName,
+            state = p.state,
+            dimming = p.dimming,
+            temperature = p.temperature,
+            r = p.r,
+            g = p.g,
+            b = p.b,
+            createdAt = p.createdAt,
+            updatedAt = p.updatedAt
+        )
+    }
+
+    suspend fun fetchPresets(): ApiResult<List<WizPreset>> {
+        when (val res = apiClient.fetchPresets()) {
+            is ApiResult.Success -> {
+                val mapped = res.data.map { presetDtoToDomain(it) }
+                _presets.value = mapped
+                preferencesManager.saveCachedPresets(res.data)
+                return ApiResult.Success(mapped)
+            }
+            is ApiResult.Error -> {
+                return ApiResult.Error(res.message, res.code, res.httpStatus)
+            }
+        }
+    }
+
+    suspend fun createPreset(request: CreatePresetRequest): ApiResult<WizPreset> {
+        when (val res = apiClient.createPreset(request)) {
+            is ApiResult.Success -> {
+                val created = presetDtoToDomain(res.data)
+                val updated = _presets.value + created
+                _presets.value = updated
+                preferencesManager.saveCachedPresets(updated.map { presetDomainToDto(it) })
+                _eventMessages.emit("Preset '${created.name}' gespeichert.")
+                return ApiResult.Success(created)
+            }
+            is ApiResult.Error -> {
+                _eventMessages.emit("Fehler beim Erstellen des Presets: ${res.message}")
+                return ApiResult.Error(res.message, res.code, res.httpStatus)
+            }
+        }
+    }
+
+    suspend fun updatePreset(id: String, request: UpdatePresetRequest): ApiResult<WizPreset> {
+        when (val res = apiClient.updatePreset(id, request)) {
+            is ApiResult.Success -> {
+                val updatedPreset = presetDtoToDomain(res.data)
+                val updated = _presets.value.map { if (it.id == id) updatedPreset else it }
+                _presets.value = updated
+                preferencesManager.saveCachedPresets(updated.map { presetDomainToDto(it) })
+                _eventMessages.emit("Preset '${updatedPreset.name}' aktualisiert.")
+                return ApiResult.Success(updatedPreset)
+            }
+            is ApiResult.Error -> {
+                _eventMessages.emit("Fehler beim Aktualisieren des Presets: ${res.message}")
+                return ApiResult.Error(res.message, res.code, res.httpStatus)
+            }
+        }
+    }
+
+    suspend fun deletePreset(preset: WizPreset): ApiResult<Unit> {
+        when (val res = apiClient.deletePreset(preset.id)) {
+            is ApiResult.Success -> {
+                val updated = _presets.value.filter { it.id != preset.id }
+                _presets.value = updated
+                preferencesManager.saveCachedPresets(updated.map { presetDomainToDto(it) })
+                _eventMessages.emit("Preset '${preset.name}' gelöscht.")
+                return ApiResult.Success(Unit)
+            }
+            is ApiResult.Error -> {
+                _eventMessages.emit("Fehler beim Löschen des Presets: ${res.message}")
+                return ApiResult.Error(res.message, res.code, res.httpStatus)
+            }
+        }
+    }
+
+    suspend fun applyPreset(preset: WizPreset) {
+        // First try server-side execution if the endpoint exists
+        when (val res = apiClient.applyPreset(preset.id)) {
+            is ApiResult.Success -> {
+                if (res.data.isPartialSuccess) {
+                    _eventMessages.emit(res.data.message)
+                } else {
+                    _eventMessages.emit("Preset '${preset.name}' aktiviert.")
+                }
+                return
+            }
+            is ApiResult.Error -> {
+                // If permission is denied (403) or unauthenticated (401), report error immediately and do not attempt bypass
+                if (res.httpStatus == 401 || res.httpStatus == 403) {
+                    _eventMessages.emit("Fehler beim Aktivieren von '${preset.name}': ${res.message}")
+                    return
+                }
+                // If server returns 404 (endpoint not supported by older backend), fall back to direct device/group execution
+                if (res.httpStatus != 404) {
+                    _eventMessages.emit("Fehler beim Aktivieren von '${preset.name}': ${res.message}")
+                    return
+                }
+            }
+        }
+
+        // Fallback for legacy servers where POST /api/presets/:id/apply is 404 Not Found
+        if (preset.isGroupTarget) {
+            val group = _groups.value.firstOrNull { it.id == preset.targetId }
+            if (group != null) {
+                setGroupPower(group, preset.state)
+                if (preset.state && preset.dimming > 0) {
+                    setGroupBrightness(group, preset.dimming)
+                }
+                if (preset.temperature != null) {
+                    setGroupTemperature(group, preset.temperature)
+                }
+                _eventMessages.emit("Preset '${preset.name}' auf Gruppe '${group.name}' angewendet.")
+            } else {
+                _eventMessages.emit("Zielgruppe für Preset '${preset.name}' nicht gefunden.")
+            }
+        } else {
+            val device = _devices.value.firstOrNull { it.mac.equals(preset.targetId, ignoreCase = true) || it.ip == preset.targetId }
+            if (device != null) {
+                setDevicePower(device, preset.state)
+                if (preset.state && preset.dimming > 0) {
+                    setDeviceBrightness(device, preset.dimming)
+                }
+                if (preset.r != null && preset.g != null && preset.b != null) {
+                    setDeviceColor(device, preset.r, preset.g, preset.b)
+                }
+                _eventMessages.emit("Preset '${preset.name}' auf Gerät '${device.deviceName}' angewendet.")
+            } else {
+                _eventMessages.emit("Zielgerät für Preset '${preset.name}' nicht gefunden.")
+            }
+        }
+    }
+
     suspend fun syncRoomsAndGroups(): ApiResult<SyncData> {
         when (val res = apiClient.fetchSync()) {
             is ApiResult.Success -> {
@@ -502,11 +700,23 @@ class WizRepository(
                 )
                 updateConfig(updatedCfg)
                 _eventMessages.emit("Synchronisation erfolgreich (Revision: ${syncData.revision}).")
+
+                // Optionally refresh presets in background, silently ignoring 403 if token has no presets.read permission
+                scope.launch {
+                    try {
+                        fetchPresets()
+                    } catch (_: Exception) {
+                        // ignore background preset sync errors
+                    }
+                }
+
                 return ApiResult.Success(syncData)
             }
             is ApiResult.Error -> {
-                // Fallback: try fetching groups directly
-                fetchGroups()
+                // If not an auth or permission failure, try legacy fallback fetching groups directly
+                if (res.httpStatus != 401 && res.httpStatus != 403) {
+                    fetchGroups()
+                }
                 val updatedCfg = _apiConfig.value.copy(lastSyncError = res.message)
                 updateConfig(updatedCfg)
                 return ApiResult.Error(res.message, res.code, res.httpStatus)
@@ -519,6 +729,7 @@ class WizRepository(
         _devices.value = emptyList()
         _rooms.value = emptyList()
         _groups.value = emptyList()
+        _presets.value = emptyList()
         _apiConfig.value = ApiConfig()
         apiClient.updateConfig(_apiConfig.value)
     }
